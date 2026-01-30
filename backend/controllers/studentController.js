@@ -27,6 +27,7 @@ const list = async (req, res) => {
       id: rombel.id,
       name: rombel.name,
       gradeLevel: rombel.gradeLevel,
+      type: rombel.type,
       periodId: rombel.periodId
     })) || []
   }));
@@ -54,6 +55,7 @@ const detail = async (req, res) => {
       id: rombel.id,
       name: rombel.name,
       gradeLevel: rombel.gradeLevel,
+      type: rombel.type,
       periodId: rombel.periodId
     })) || []
   });
@@ -163,6 +165,7 @@ const update = async (req, res) => {
         id: rombel.id,
         name: rombel.name,
         gradeLevel: rombel.gradeLevel,
+        type: rombel.type,
         periodId: rombel.periodId
       })) || []
     });

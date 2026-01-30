@@ -2,27 +2,34 @@ const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize');
 const { sequelize, User, Role, Tendik } = require('../models');
 
-const typeToRole = {
-  guru: 'guru',
-  tu: 'staff_tu',
-  kepala_sekolah: 'kepala_sekolah',
-  wakasek: 'wakasek'
+const roleOrder = ['kepala_sekolah', 'wakasek', 'guru', 'staff_tu', 'super_admin'];
+const roleLabel = {
+  super_admin: 'Super Admin',
+  kepala_sekolah: 'Kepala Sekolah',
+  wakasek: 'Wakasek',
+  guru: 'Guru',
+  staff_tu: 'Staff TU'
 };
 
-const resolveRoles = (roles, type) => {
+const resolveRoles = (roles) => {
   if (Array.isArray(roles) && roles.length) {
     return roles;
   }
-  const mapped = typeToRole[type];
-  return mapped ? [mapped] : [];
+  return ['guru'];
+};
+
+const getPrimaryRole = (roles = []) => {
+  for (const role of roleOrder) {
+    if (roles.includes(role)) {
+      return role;
+    }
+  }
+  return roles[0] || null;
 };
 
 const list = async (req, res) => {
-  const { search, type } = req.query;
+  const { search } = req.query;
   const where = {};
-  if (type) {
-    where.type = type;
-  }
 
   const tendik = await Tendik.findAll({
     where,
@@ -49,20 +56,25 @@ const list = async (req, res) => {
     });
   }
 
-  const payload = filtered.map((item) => ({
+  const payload = filtered.map((item) => {
+    const roles = item.User?.Roles?.map((role) => role.name) || [];
+    const primaryRole = getPrimaryRole(roles);
+    return ({
     id: item.id,
     name: item.name,
     nip: item.nip,
     position: item.position,
-    type: item.type,
     user: {
       id: item.User?.id,
       username: item.User?.username,
       email: item.User?.email,
       isActive: item.User?.isActive,
-      roles: item.User?.Roles?.map((role) => role.name) || []
+      roles,
+      primaryRole,
+      primaryRoleLabel: primaryRole ? roleLabel[primaryRole] : null
     }
-  }));
+  });
+  });
 
   return res.json(payload);
 };
@@ -83,18 +95,22 @@ const detail = async (req, res) => {
     return res.status(404).json({ message: 'Tendik tidak ditemukan' });
   }
 
+  const roles = tendik.User?.Roles?.map((role) => role.name) || [];
+  const primaryRole = getPrimaryRole(roles);
+
   return res.json({
     id: tendik.id,
     name: tendik.name,
     nip: tendik.nip,
     position: tendik.position,
-    type: tendik.type,
     user: {
       id: tendik.User?.id,
       username: tendik.User?.username,
       email: tendik.User?.email,
       isActive: tendik.User?.isActive,
-      roles: tendik.User?.Roles?.map((role) => role.name) || []
+      roles,
+      primaryRole,
+      primaryRoleLabel: primaryRole ? roleLabel[primaryRole] : null
     }
   });
 };
@@ -107,15 +123,14 @@ const create = async (req, res) => {
     name,
     nip,
     position,
-    type,
     roles
   } = req.body;
 
-  if (!username || !email || !password || !name || !type) {
+  if (!username || !email || !password || !name) {
     return res.status(400).json({ message: 'Field wajib belum lengkap' });
   }
 
-  const roleNames = resolveRoles(roles, type);
+  const roleNames = resolveRoles(roles);
   if (!roleNames.length) {
     return res.status(400).json({ message: 'Role tidak valid' });
   }
@@ -149,12 +164,12 @@ const create = async (req, res) => {
       userId: user.id,
       name,
       nip: nip || null,
-      position: position || null,
-      type
+      position: position || null
     }, { transaction });
 
     await user.setRoles(roleRows, { transaction });
 
+    const primaryRole = getPrimaryRole(roleNames);
     await transaction.commit();
 
     return res.status(201).json({
@@ -162,13 +177,14 @@ const create = async (req, res) => {
       name: tendik.name,
       nip: tendik.nip,
       position: tendik.position,
-      type: tendik.type,
       user: {
         id: user.id,
         username: user.username,
         email: user.email,
         isActive: user.isActive,
-        roles: roleRows.map((role) => role.name)
+        roles: roleRows.map((role) => role.name),
+        primaryRole,
+        primaryRoleLabel: primaryRole ? roleLabel[primaryRole] : null
       }
     });
   } catch (err) {
@@ -186,7 +202,6 @@ const update = async (req, res) => {
     name,
     nip,
     position,
-    type,
     roles,
     isActive
   } = req.body;
@@ -204,7 +219,6 @@ const update = async (req, res) => {
     if (name !== undefined) tendik.name = name;
     if (nip !== undefined) tendik.nip = nip;
     if (position !== undefined) tendik.position = position;
-    if (type !== undefined) tendik.type = type;
     await tendik.save({ transaction });
 
     const user = tendik.User;
@@ -217,7 +231,7 @@ const update = async (req, res) => {
     await user.save({ transaction });
 
     if (roles) {
-      const roleNames = resolveRoles(roles, type || tendik.type);
+      const roleNames = resolveRoles(roles);
       const roleRows = await Role.findAll({ where: { name: roleNames } });
       if (roleRows.length !== roleNames.length) {
         await transaction.rollback();
@@ -230,18 +244,20 @@ const update = async (req, res) => {
 
     const updatedRoles = await user.getRoles();
 
+    const primaryRole = getPrimaryRole(updatedRoles.map((role) => role.name));
     return res.json({
       id: tendik.id,
       name: tendik.name,
       nip: tendik.nip,
       position: tendik.position,
-      type: tendik.type,
       user: {
         id: user.id,
         username: user.username,
         email: user.email,
         isActive: user.isActive,
-        roles: updatedRoles.map((role) => role.name)
+        roles: updatedRoles.map((role) => role.name),
+        primaryRole,
+        primaryRoleLabel: primaryRole ? roleLabel[primaryRole] : null
       }
     });
   } catch (err) {

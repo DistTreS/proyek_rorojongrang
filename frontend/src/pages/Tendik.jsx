@@ -9,20 +9,6 @@ const roleOptions = [
   { value: 'guru', label: 'Guru' }
 ];
 
-const typeOptions = [
-  { value: 'guru', label: 'Guru' },
-  { value: 'tu', label: 'Staff TU' },
-  { value: 'kepala_sekolah', label: 'Kepala Sekolah' },
-  { value: 'wakasek', label: 'Wakasek' }
-];
-
-const typeRoleMap = {
-  guru: ['guru'],
-  tu: ['staff_tu'],
-  kepala_sekolah: ['kepala_sekolah'],
-  wakasek: ['wakasek']
-};
-
 const emptyForm = {
   username: '',
   email: '',
@@ -30,7 +16,6 @@ const emptyForm = {
   name: '',
   nip: '',
   position: '',
-  type: 'guru',
   roles: ['guru'],
   isActive: true
 };
@@ -41,6 +26,7 @@ const Tendik = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [editingId, setEditingId] = useState(null);
+  const [modal, setModal] = useState({ type: null, item: null });
 
   const load = async () => {
     setLoading(true);
@@ -63,15 +49,6 @@ const Tendik = () => {
 
   const updateForm = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleTypeChange = (value) => {
-    const mappedRoles = typeRoleMap[value] || [];
-    setForm((prev) => ({
-      ...prev,
-      type: value,
-      roles: prev.roles.length ? prev.roles : mappedRoles
-    }));
   };
 
   const toggleRole = (value) => {
@@ -99,8 +76,7 @@ const Tendik = () => {
       name: form.name.trim(),
       nip: form.nip.trim() || null,
       position: form.position.trim() || null,
-      type: form.type,
-      roles: form.roles.length ? form.roles : typeRoleMap[form.type],
+      roles: form.roles.length ? form.roles : ['guru'],
       isActive: form.isActive
     };
 
@@ -120,6 +96,7 @@ const Tendik = () => {
         await api.post('/tendik', payload);
       }
       resetForm();
+      setModal({ type: null, item: null });
       load();
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal menyimpan data');
@@ -135,20 +112,38 @@ const Tendik = () => {
       name: item.name,
       nip: item.nip || '',
       position: item.position || '',
-      type: item.type,
       roles: item.user.roles || [],
       isActive: item.user.isActive
     });
+    setModal({ type: 'edit', item });
   };
 
   const handleDelete = async (item) => {
-    if (!confirm(`Hapus ${item.name}?`)) return;
+    setModal({ type: 'delete', item });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!modal.item) return;
     try {
-      await api.delete(`/tendik/${item.id}`);
+      await api.delete(`/tendik/${modal.item.id}`);
+      setModal({ type: null, item: null });
       load();
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal menghapus data');
     }
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setModal({ type: 'create', item: null });
+  };
+
+  const openDetail = (item) => {
+    setModal({ type: 'detail', item });
+  };
+
+  const closeModal = () => {
+    setModal({ type: null, item: null });
   };
 
   return (
@@ -159,12 +154,11 @@ const Tendik = () => {
           <p className="text-sm text-slate-600">Kelola guru dan staff tata usaha beserta akun login.</p>
         </div>
         <button
-          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-200 hover:text-emerald-700"
+          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
           type="button"
-          onClick={load}
-          disabled={loading}
+          onClick={openCreate}
         >
-          {loading ? 'Memuat...' : 'Refresh'}
+          + Tambah Tendik
         </button>
       </div>
 
@@ -174,131 +168,7 @@ const Tendik = () => {
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[1.05fr_1fr]">
-        <form className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm" onSubmit={handleSubmit}>
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">{editingId ? 'Edit Tendik' : 'Tambah Tendik'}</h2>
-            {editingId && (
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
-                Mode Edit
-              </span>
-            )}
-          </div>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <label className="text-sm font-medium text-slate-700">
-              Nama
-              <input
-                value={form.name}
-                onChange={(e) => updateForm('name', e.target.value)}
-                required
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-              />
-            </label>
-            <label className="text-sm font-medium text-slate-700">
-              NIP
-              <input
-                value={form.nip}
-                onChange={(e) => updateForm('nip', e.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-              />
-            </label>
-            <label className="text-sm font-medium text-slate-700">
-              Jabatan
-              <input
-                value={form.position}
-                onChange={(e) => updateForm('position', e.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-              />
-            </label>
-            <label className="text-sm font-medium text-slate-700">
-              Tipe
-              <select
-                value={form.type}
-                onChange={(e) => handleTypeChange(e.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-              >
-                {typeOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="text-sm font-medium text-slate-700">
-              Username
-              <input
-                value={form.username}
-                onChange={(e) => updateForm('username', e.target.value)}
-                required
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-              />
-            </label>
-            <label className="text-sm font-medium text-slate-700">
-              Email
-              <input
-                type="email"
-                value={form.email}
-                onChange={(e) => updateForm('email', e.target.value)}
-                required
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-              />
-            </label>
-            <label className="text-sm font-medium text-slate-700 sm:col-span-2">
-              Password {editingId ? '(opsional)' : ''}
-              <input
-                type="password"
-                value={form.password}
-                onChange={(e) => updateForm('password', e.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-              />
-            </label>
-          </div>
-
-          <div className="mt-5 flex items-center gap-3 text-sm text-slate-600">
-            <input
-              type="checkbox"
-              checked={form.isActive}
-              onChange={(e) => updateForm('isActive', e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
-            />
-            <span>Aktif</span>
-          </div>
-
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Role</div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {roleOptions.map((role) => (
-                <label key={role.value} className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={roleSet.has(role.value)}
-                    onChange={() => toggleRole(role.value)}
-                    className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
-                  />
-                  {role.label}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button
-              className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-              type="submit"
-            >
-              {editingId ? 'Simpan Perubahan' : 'Tambah'}
-            </button>
-            {editingId && (
-              <button
-                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                type="button"
-                onClick={resetForm}
-              >
-                Batal
-              </button>
-            )}
-          </div>
-        </form>
-
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">Daftar Tendik</h2>
             <span className="text-xs text-slate-500">{items.length} orang</span>
@@ -318,7 +188,7 @@ const Tendik = () => {
               >
                 <div>
                   <div className="text-sm font-semibold text-slate-900">{item.name}</div>
-                  <div className="text-xs text-slate-500">{item.nip || '-'} • {item.type}</div>
+                <div className="text-xs text-slate-500">{item.nip || '-'} • {item.user.primaryRoleLabel || '-'}</div>
                 </div>
                 <div className="text-sm text-slate-700">{item.user.username}</div>
                 <div className="text-sm text-slate-700">{item.user.roles.join(', ')}</div>
@@ -328,6 +198,13 @@ const Tendik = () => {
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <button
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
+                    type="button"
+                    onClick={() => openDetail(item)}
+                  >
+                    Detail
+                  </button>
                   <button
                     className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
                     type="button"
@@ -351,8 +228,176 @@ const Tendik = () => {
               </div>
             )}
           </div>
-        </div>
       </div>
+
+      {modal.type && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-slate-900/40" onClick={closeModal} />
+          <div className="relative w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
+            {modal.type === 'detail' && modal.item && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-slate-900">Detail Tendik</h3>
+                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
+                    Tutup
+                  </button>
+                </div>
+                <div className="grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
+                  <div><span className="text-xs uppercase text-slate-500">Nama</span><div className="font-semibold">{modal.item.name}</div></div>
+                  <div><span className="text-xs uppercase text-slate-500">NIP</span><div className="font-semibold">{modal.item.nip || '-'}</div></div>
+                  <div><span className="text-xs uppercase text-slate-500">Jabatan</span><div className="font-semibold">{modal.item.position || '-'}</div></div>
+                  <div><span className="text-xs uppercase text-slate-500">Role Utama</span><div className="font-semibold">{modal.item.user.primaryRoleLabel || '-'}</div></div>
+                  <div><span className="text-xs uppercase text-slate-500">Username</span><div className="font-semibold">{modal.item.user.username}</div></div>
+                  <div><span className="text-xs uppercase text-slate-500">Email</span><div className="font-semibold">{modal.item.user.email}</div></div>
+                  <div><span className="text-xs uppercase text-slate-500">Status</span><div className="font-semibold">{modal.item.user.isActive ? 'Aktif' : 'Nonaktif'}</div></div>
+                  <div><span className="text-xs uppercase text-slate-500">Role</span><div className="font-semibold">{modal.item.user.roles.join(', ')}</div></div>
+                </div>
+              </div>
+            )}
+
+            {(modal.type === 'create' || modal.type === 'edit') && (
+              <form className="space-y-4" onSubmit={handleSubmit}>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-slate-900">
+                    {modal.type === 'edit' ? 'Edit Tendik' : 'Tambah Tendik'}
+                  </h3>
+                  <button className="text-sm text-slate-500 hover:text-slate-700" type="button" onClick={closeModal}>
+                    Tutup
+                  </button>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="text-sm font-medium text-slate-700">
+                    Nama
+                    <input
+                      value={form.name}
+                      onChange={(e) => updateForm('name', e.target.value)}
+                      required
+                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-slate-700">
+                    NIP
+                    <input
+                      value={form.nip}
+                      onChange={(e) => updateForm('nip', e.target.value)}
+                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-slate-700">
+                    Jabatan
+                    <input
+                      value={form.position}
+                      onChange={(e) => updateForm('position', e.target.value)}
+                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-slate-700">
+                    Username
+                    <input
+                      value={form.username}
+                      onChange={(e) => updateForm('username', e.target.value)}
+                      required
+                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-slate-700">
+                    Email
+                    <input
+                      type="email"
+                      value={form.email}
+                      onChange={(e) => updateForm('email', e.target.value)}
+                      required
+                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-slate-700 sm:col-span-2">
+                    Password {editingId ? '(opsional)' : ''}
+                    <input
+                      type="password"
+                      value={form.password}
+                      onChange={(e) => updateForm('password', e.target.value)}
+                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+                    />
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-3 text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={form.isActive}
+                    onChange={(e) => updateForm('isActive', e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
+                  />
+                  <span>Aktif</span>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Role</div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {roleOptions.map((role) => (
+                      <label key={role.value} className="flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={roleSet.has(role.value)}
+                          onChange={() => toggleRole(role.value)}
+                          className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
+                        />
+                        {role.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
+                    type="submit"
+                  >
+                    {editingId ? 'Simpan Perubahan' : 'Tambah'}
+                  </button>
+                  <button
+                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
+                    type="button"
+                    onClick={closeModal}
+                  >
+                    Batal
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {modal.type === 'delete' && modal.item && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-slate-900">Hapus Tendik</h3>
+                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
+                    Tutup
+                  </button>
+                </div>
+                <p className="text-sm text-slate-600">
+                  Yakin ingin menghapus <span className="font-semibold">{modal.item.name}</span>? Data akun akan ikut terhapus.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-200 transition hover:bg-rose-700"
+                    type="button"
+                    onClick={handleConfirmDelete}
+                  >
+                    Hapus
+                  </button>
+                  <button
+                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
+                    type="button"
+                    onClick={closeModal}
+                  >
+                    Batal
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   );
 };

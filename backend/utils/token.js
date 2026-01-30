@@ -12,11 +12,14 @@ const buildAccessToken = (user) => {
   );
 };
 
+const { v4: uuidv4 } = require('uuid');
+
 const buildRefreshToken = (user) => {
   return jwt.sign(
     {
       sub: user.id,
-      tokenType: 'refresh'
+      tokenType: 'refresh',
+      jti: uuidv4()
     },
     process.env.JWT_REFRESH_SECRET,
     { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' }

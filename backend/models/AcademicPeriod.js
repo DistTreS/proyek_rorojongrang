@@ -4,6 +4,7 @@ module.exports = (sequelize, DataTypes) => {
     name: { type: DataTypes.STRING(100), allowNull: false },
     startDate: { type: DataTypes.DATEONLY, allowNull: false },
     endDate: { type: DataTypes.DATEONLY, allowNull: false },
+    semester: { type: DataTypes.ENUM('ganjil', 'genap'), allowNull: false, defaultValue: 'ganjil' },
     isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }
   });
 

@@ -19,7 +19,8 @@ const list = async (req, res) => {
   return res.json(subjects.map((subject) => ({
     id: subject.id,
     code: subject.code,
-    name: subject.name
+    name: subject.name,
+    type: subject.type
   })));
 };
 
@@ -32,12 +33,17 @@ const detail = async (req, res) => {
   return res.json({
     id: subject.id,
     code: subject.code,
-    name: subject.name
+    name: subject.name,
+    type: subject.type
   });
 };
 
 const create = async (req, res) => {
-  const { code, name } = req.body;
+  const { code, name, type } = req.body;
+  const normalizedType = type ? String(type).toLowerCase() : 'wajib';
+  if (!['wajib', 'peminatan'].includes(normalizedType)) {
+    return res.status(400).json({ message: 'Jenis mapel tidak valid' });
+  }
   if (!name) {
     return res.status(400).json({ message: 'Nama mata pelajaran wajib diisi' });
   }
@@ -51,19 +57,21 @@ const create = async (req, res) => {
 
   const subject = await Subject.create({
     code: code || null,
-    name
+    name,
+    type: normalizedType
   });
 
   return res.status(201).json({
     id: subject.id,
     code: subject.code,
-    name: subject.name
+    name: subject.name,
+    type: subject.type
   });
 };
 
 const update = async (req, res) => {
   const { id } = req.params;
-  const { code, name } = req.body;
+  const { code, name, type } = req.body;
   const subject = await Subject.findByPk(id);
 
   if (!subject) {
@@ -84,12 +92,20 @@ const update = async (req, res) => {
 
   if (name !== undefined) subject.name = name;
   if (code !== undefined) subject.code = code || null;
+  if (type !== undefined) {
+    const normalizedType = String(type).toLowerCase();
+    if (!['wajib', 'peminatan'].includes(normalizedType)) {
+      return res.status(400).json({ message: 'Jenis mapel tidak valid' });
+    }
+    subject.type = normalizedType;
+  }
   await subject.save();
 
   return res.json({
     id: subject.id,
     code: subject.code,
-    name: subject.name
+    name: subject.name,
+    type: subject.type
   });
 };
 

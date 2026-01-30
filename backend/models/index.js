@@ -52,6 +52,9 @@ Schedule.belongsTo(TeachingAssignment, { foreignKey: 'teachingAssignmentId' });
 Attendance.belongsTo(Student, { foreignKey: 'studentId' });
 Attendance.belongsTo(Rombel, { foreignKey: 'rombelId' });
 Attendance.belongsTo(TimeSlot, { foreignKey: 'timeSlotId' });
+Attendance.belongsTo(Subject, { foreignKey: 'subjectId' });
+Attendance.belongsTo(Tendik, { foreignKey: 'teacherId', as: 'Teacher' });
+Attendance.belongsTo(Tendik, { foreignKey: 'substituteTeacherId', as: 'SubstituteTeacher' });
 
 StudentNote.belongsTo(Student, { foreignKey: 'studentId' });
 StudentNote.belongsTo(User, { foreignKey: 'authorId' });
