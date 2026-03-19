@@ -29,6 +29,8 @@ const Siswa = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [modal, setModal] = useState({ type: null, item: null });
+  const [importFile, setImportFile] = useState(null);
+  const [importResult, setImportResult] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -139,6 +141,47 @@ const Siswa = () => {
     setModal({ type: null, item: null });
   };
 
+  const openImport = () => {
+    setImportFile(null);
+    setImportResult(null);
+    setModal({ type: 'import', item: null });
+  };
+
+  const downloadTemplate = async () => {
+    try {
+      const response = await api.get('/siswa/template', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'template-siswa.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Gagal mengunduh template');
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importFile) {
+      setError('Pilih file Excel terlebih dahulu');
+      return;
+    }
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', importFile);
+      const { data } = await api.post('/siswa/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setImportResult(data);
+      load();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Gagal import data');
+    }
+  };
+
   return (
     <section className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -146,13 +189,22 @@ const Siswa = () => {
           <h1 className="text-3xl font-semibold text-slate-900">Data Siswa</h1>
           <p className="text-sm text-slate-600">Kelola data siswa dan keanggotaan rombel.</p>
         </div>
-        <button
-          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-          type="button"
-          onClick={openCreate}
-        >
-          + Tambah Siswa
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-200 hover:text-emerald-700"
+            type="button"
+            onClick={openImport}
+          >
+            Import Excel
+          </button>
+          <button
+            className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
+            type="button"
+            onClick={openCreate}
+          >
+            + Tambah Siswa
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -361,6 +413,68 @@ const Siswa = () => {
                     Batal
                   </button>
                 </div>
+              </div>
+            )}
+
+            {modal.type === 'import' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-slate-900">Import Siswa</h3>
+                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
+                    Tutup
+                  </button>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  Unduh template terlebih dahulu, isi data, lalu unggah kembali.
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
+                    type="button"
+                    onClick={downloadTemplate}
+                  >
+                    Download Template
+                  </button>
+                  <input
+                    type="file"
+                    accept=".xlsx"
+                    onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                    className="text-sm"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
+                    type="button"
+                    onClick={handleImport}
+                  >
+                    Import
+                  </button>
+                  <button
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
+                    type="button"
+                    onClick={closeModal}
+                  >
+                    Batal
+                  </button>
+                </div>
+                {importResult && (
+                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-700">
+                    Berhasil: {importResult.success} data.
+                    {importResult.failed?.length ? (
+                      <div className="mt-2 text-xs text-emerald-700">
+                        Gagal: {importResult.failed.length} baris.
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+                {importResult?.failed?.length ? (
+                  <div className="max-h-40 overflow-auto rounded-2xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                    {importResult.failed.map((item, idx) => (
+                      <div key={`${item.row}-${idx}`}>Baris {item.row}: {item.message}</div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             )}
           </div>

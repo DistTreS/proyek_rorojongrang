@@ -25,7 +25,8 @@
     "mysql2": "^3.9.4",
     "proyek-rorojongrang": "file:..",
     "sequelize": "^6.37.3",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "eslint": "^8.57.0",
