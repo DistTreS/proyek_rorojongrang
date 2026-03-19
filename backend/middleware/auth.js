@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { normalizeRoles } = require('../config/rbac');
 
 module.exports = (req, res, next) => {
   const authHeader = req.headers.authorization || '';
@@ -10,7 +11,11 @@ module.exports = (req, res, next) => {
 
   try {
     const payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
-    req.user = payload;
+    req.user = {
+      ...payload,
+      id: payload.sub,
+      roles: normalizeRoles(payload.roles)
+    };
     return next();
   } catch (err) {
     return res.status(401).json({ message: 'Invalid token' });

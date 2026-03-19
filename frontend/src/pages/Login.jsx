@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 
 const Login = () => {
   const { login } = useAuth();
@@ -48,7 +48,7 @@ const Login = () => {
               </div>
               <div className="flex items-center gap-3">
                 <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                Multi-role: admin, guru, staff TU
+                Multi-role: guru, staff TU, wakasek, kepala sekolah
               </div>
             </div>
           </section>

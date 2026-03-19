@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import DonutChart from '../components/DonutChart';
+import { getRoleSummary, getVisibleNavSections } from '../config/navigation';
+import { ROLE_LABELS } from '../constants/rbac';
 
 const Dashboard = () => {
-  const { logout } = useAuth();
+  const { logout, roles } = useAuth();
   const [profile, setProfile] = useState(null);
   const [overview, setOverview] = useState(null);
   const [error, setError] = useState(null);
@@ -46,6 +49,14 @@ const Dashboard = () => {
     { label: 'Sakit', value: overview.attendanceSummary?.sakit || 0, color: '#3b82f6' },
     { label: 'Alpa', value: overview.attendanceSummary?.alpa || 0, color: '#ef4444' }
   ] : [];
+  const effectiveRoles = profile?.roles?.length ? profile.roles : roles;
+  const roleSummary = getRoleSummary(effectiveRoles);
+  const navSections = useMemo(() => {
+    return getVisibleNavSections(effectiveRoles).map((section) => ({
+      ...section,
+      items: section.items.filter((item) => item.path !== '/')
+    })).filter((section) => section.items.length);
+  }, [effectiveRoles]);
 
   return (
     <section className="space-y-6">
@@ -71,8 +82,57 @@ const Dashboard = () => {
           <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-700">
             {profile.roles.map((role) => (
               <span key={role} className="rounded-full bg-emerald-100 px-3 py-1">
-                {role}
+                {ROLE_LABELS[role] || role}
               </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {roleSummary.focus && (
+        <div className="rounded-3xl border border-emerald-100 bg-emerald-50/70 p-6 shadow-sm">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+            Fokus Role
+          </div>
+          <h2 className="mt-2 text-2xl font-semibold text-slate-900">
+            {roleSummary.focus.title}
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
+            {roleSummary.focus.description}
+          </p>
+          <div className="mt-4 text-sm font-medium text-emerald-700">
+            Role utama: {roleSummary.primaryRoleLabel}
+          </div>
+        </div>
+      )}
+
+      {!!navSections.length && (
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-900">Akses Cepat</h2>
+            <span className="text-xs uppercase tracking-wide text-slate-500">
+              Menu sesuai role
+            </span>
+          </div>
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            {navSections.map((section) => (
+              <div key={section.key} className="space-y-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  {section.label}
+                </div>
+                <div className="grid gap-3">
+                  {section.items.map((item) => (
+                    <Link
+                      key={item.key}
+                      to={item.path}
+                      className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-emerald-200 hover:bg-emerald-50/40"
+                    >
+                      <div className="text-sm font-semibold text-slate-900">{item.resolvedLabel}</div>
+                      <div className="mt-1 text-sm text-slate-600">{item.summary}</div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </div>

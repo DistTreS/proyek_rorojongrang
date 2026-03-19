@@ -9,6 +9,8 @@ const emptyForm = {
   isActive: false
 };
 
+const isValidDateRange = (startDate, endDate) => !startDate || !endDate || startDate <= endDate;
+
 const Period = () => {
   const [periods, setPeriods] = useState([]);
   const [form, setForm] = useState(emptyForm);
@@ -46,6 +48,16 @@ const Period = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError(null);
+
+    if (!form.name.trim() || !form.startDate || !form.endDate) {
+      setError('Nama periode dan rentang tanggal wajib diisi');
+      return;
+    }
+
+    if (!isValidDateRange(form.startDate, form.endDate)) {
+      setError('Tanggal akhir harus setelah atau sama dengan tanggal mulai');
+      return;
+    }
 
     const payload = {
       name: form.name.trim(),

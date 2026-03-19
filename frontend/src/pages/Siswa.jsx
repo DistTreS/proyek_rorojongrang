@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
+import { useAuth } from '../context/useAuth';
+import { ADMIN_ROLES, canAccess } from '../constants/rbac';
 
 const emptyForm = {
   nis: '',
@@ -21,7 +23,10 @@ const formatRombelLabel = (rombel) => {
   return `${rombel.name} • ${typeLabel}`;
 };
 
+const isValidBirthDate = (value) => !value || /^\d{4}-\d{2}-\d{2}$/.test(value);
+
 const Siswa = () => {
+  const { roles } = useAuth();
   const [students, setStudents] = useState([]);
   const [rombels, setRombels] = useState([]);
   const [form, setForm] = useState(emptyForm);
@@ -31,6 +36,7 @@ const Siswa = () => {
   const [modal, setModal] = useState({ type: null, item: null });
   const [importFile, setImportFile] = useState(null);
   const [importResult, setImportResult] = useState(null);
+  const canManage = canAccess(roles, ADMIN_ROLES);
 
   const load = async () => {
     setLoading(true);
@@ -79,6 +85,17 @@ const Siswa = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError(null);
+
+    if (!form.nis.trim() || !form.name.trim()) {
+      setError('NIS dan nama wajib diisi');
+      return;
+    }
+
+    if (form.birthDate && !isValidBirthDate(form.birthDate)) {
+      setError('Format tanggal lahir tidak valid');
+      return;
+    }
+
     const payload = {
       nis: form.nis.trim(),
       name: form.name.trim(),
@@ -186,25 +203,29 @@ const Siswa = () => {
     <section className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-900">Data Siswa</h1>
-          <p className="text-sm text-slate-600">Kelola data siswa dan keanggotaan rombel.</p>
+          <h1 className="text-3xl font-semibold text-slate-900">{canManage ? 'Data Siswa' : 'Daftar Siswa'}</h1>
+          <p className="text-sm text-slate-600">
+            {canManage ? 'Kelola data siswa dan keanggotaan rombel.' : 'Lihat data siswa dan keanggotaan rombel.'}
+          </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-200 hover:text-emerald-700"
-            type="button"
-            onClick={openImport}
-          >
-            Import Excel
-          </button>
-          <button
-            className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-            type="button"
-            onClick={openCreate}
-          >
-            + Tambah Siswa
-          </button>
-        </div>
+        {canManage && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-200 hover:text-emerald-700"
+              type="button"
+              onClick={openImport}
+            >
+              Import Excel
+            </button>
+            <button
+              className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
+              type="button"
+              onClick={openCreate}
+            >
+              + Tambah Siswa
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -218,7 +239,7 @@ const Siswa = () => {
             <h2 className="text-lg font-semibold text-slate-900">Daftar Siswa</h2>
             <span className="text-xs text-slate-500">{students.length} siswa</span>
           </div>
-          <div className="mt-5 hidden grid-cols-[1.4fr_1fr_1.4fr_0.8fr] gap-4 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
+          <div className={`mt-5 hidden gap-4 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid ${canManage ? 'grid-cols-[1.4fr_1fr_1.4fr_0.8fr]' : 'grid-cols-[1.4fr_1fr_1.8fr_0.6fr]'}`}>
             <div>Nama</div>
             <div>NIS</div>
             <div>Rombel</div>
@@ -228,7 +249,7 @@ const Siswa = () => {
             {students.map((student) => (
               <div
                 key={student.id}
-                className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1.4fr_1fr_1.4fr_0.8fr] md:items-center"
+                className={`grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:items-center ${canManage ? 'md:grid-cols-[1.4fr_1fr_1.4fr_0.8fr]' : 'md:grid-cols-[1.4fr_1fr_1.8fr_0.6fr]'}`}
               >
                 <div>
                   <div className="text-sm font-semibold text-slate-900">{student.name}</div>
@@ -249,20 +270,24 @@ const Siswa = () => {
                   >
                     Detail
                   </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={() => handleEdit(student)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
-                    type="button"
-                    onClick={() => handleDelete(student)}
-                  >
-                    Hapus
-                  </button>
+                  {canManage && (
+                    <>
+                      <button
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
+                        type="button"
+                        onClick={() => handleEdit(student)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
+                        type="button"
+                        onClick={() => handleDelete(student)}
+                      >
+                        Hapus
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             ))}

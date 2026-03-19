@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
-
-const roleOptions = [
-  { value: 'super_admin', label: 'Super Admin' },
-  { value: 'kepala_sekolah', label: 'Kepala Sekolah' },
-  { value: 'wakasek', label: 'Wakasek' },
-  { value: 'staff_tu', label: 'Staff TU' },
-  { value: 'guru', label: 'Guru' }
-];
+import {
+  ROLE_LABELS,
+  ROLE_OPTIONS,
+  ROLES,
+  normalizeRoles
+} from '../constants/rbac';
 
 const emptyForm = {
   username: '',
@@ -16,11 +14,16 @@ const emptyForm = {
   name: '',
   nip: '',
   position: '',
-  roles: ['guru'],
+  roles: [ROLES.GURU],
   isActive: true
 };
 
-const Tendik = () => {
+const isValidEmail = (value) => /\S+@\S+\.\S+/.test(value);
+
+const Tendik = ({
+  pageTitle = 'Data Tendik',
+  pageDescription = 'Kelola guru dan staff tata usaha beserta akun login.'
+}) => {
   const [items, setItems] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(false);
@@ -71,6 +74,27 @@ const Tendik = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError(null);
+
+    if (!form.username.trim() || !form.email.trim() || !form.name.trim()) {
+      setError('Username, email, dan nama wajib diisi');
+      return;
+    }
+
+    if (!isValidEmail(form.email.trim())) {
+      setError('Format email tidak valid');
+      return;
+    }
+
+    if (!editingId && form.password.trim().length < 6) {
+      setError('Password minimal 6 karakter untuk akun baru');
+      return;
+    }
+
+    if (!normalizeRoles(form.roles).length) {
+      setError('Minimal satu role harus dipilih');
+      return;
+    }
+
     const payload = {
       username: form.username.trim(),
       email: form.email.trim(),
@@ -78,7 +102,9 @@ const Tendik = () => {
       name: form.name.trim(),
       nip: form.nip.trim() || null,
       position: form.position.trim() || null,
-      roles: form.roles.length ? form.roles : ['guru'],
+      roles: normalizeRoles(form.roles).length
+        ? normalizeRoles(form.roles)
+        : [ROLES.GURU],
       isActive: form.isActive
     };
 
@@ -114,7 +140,7 @@ const Tendik = () => {
       name: item.name,
       nip: item.nip || '',
       position: item.position || '',
-      roles: item.user.roles || [],
+      roles: normalizeRoles(item.user.roles),
       isActive: item.user.isActive
     });
     setModal({ type: 'edit', item });
@@ -193,8 +219,8 @@ const Tendik = () => {
     <section className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-900">Data Tendik</h1>
-          <p className="text-sm text-slate-600">Kelola guru dan staff tata usaha beserta akun login.</p>
+          <h1 className="text-3xl font-semibold text-slate-900">{pageTitle}</h1>
+          <p className="text-sm text-slate-600">{pageDescription}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -243,7 +269,7 @@ const Tendik = () => {
                 <div className="text-xs text-slate-500">{item.nip || '-'} • {item.user.primaryRoleLabel || '-'}</div>
                 </div>
                 <div className="text-sm text-slate-700">{item.user.username}</div>
-                <div className="text-sm text-slate-700">{item.user.roles.join(', ')}</div>
+                <div className="text-sm text-slate-700">{item.user.roles.map((role) => ROLE_LABELS[role] || role).join(', ')}</div>
                 <div>
                   <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${item.user.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
                     {item.user.isActive ? 'Aktif' : 'Nonaktif'}
@@ -386,7 +412,7 @@ const Tendik = () => {
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Role</div>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    {roleOptions.map((role) => (
+                    {ROLE_OPTIONS.map((role) => (
                       <label key={role.value} className="flex items-center gap-2 text-sm text-slate-700">
                         <input
                           type="checkbox"

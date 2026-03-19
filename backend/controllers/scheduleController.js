@@ -1,131 +1,53 @@
-const { Op } = require('sequelize');
 const {
-  sequelize,
-  Schedule,
-  TimeSlot,
-  TeachingAssignment,
-  Subject,
-  Tendik,
-  Rombel,
-  AcademicPeriod
-} = require('../models');
-
-const dayOrder = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-
-const buildPayload = (assignments, timeSlots) => {
-  return {
-    teaching_assignments: assignments.map((item) => ({
-      id: item.id,
-      teacher_id: item.teacherId,
-      subject_id: item.subjectId,
-      rombel_id: item.rombelId,
-      period_id: item.periodId,
-      weekly_hours: item.weeklyHours
-    })),
-    time_slots: timeSlots.map((slot) => ({
-      id: slot.id,
-      period_id: slot.periodId,
-      day_of_week: slot.dayOfWeek,
-      start_time: slot.startTime,
-      end_time: slot.endTime,
-      label: slot.label
-    }))
-  };
-};
-
-const normalizeScheduleItems = (items) => {
-  if (!Array.isArray(items)) return [];
-  return items.map((item) => ({
-    rombelId: item.rombelId ?? item.rombel_id,
-    timeSlotId: item.timeSlotId ?? item.time_slot_id,
-    teachingAssignmentId: item.teachingAssignmentId ?? item.teaching_assignment_id,
-    room: item.room || null
-  })).filter((item) => item.rombelId && item.timeSlotId && item.teachingAssignmentId);
-};
-
-const fallbackGenerate = (assignments, timeSlots) => {
-  const slotsByRombel = new Map();
-  const orderedSlots = [...timeSlots].sort((a, b) => {
-    if (a.dayOfWeek !== b.dayOfWeek) return a.dayOfWeek - b.dayOfWeek;
-    return a.startTime.localeCompare(b.startTime);
-  });
-
-  assignments.forEach((assignment) => {
-    if (!slotsByRombel.has(assignment.rombelId)) {
-      slotsByRombel.set(assignment.rombelId, []);
-    }
-    const list = slotsByRombel.get(assignment.rombelId);
-    const hours = assignment.weeklyHours || 1;
-    for (let i = 0; i < hours; i += 1) {
-      const slotIndex = list.length % orderedSlots.length;
-      const slot = orderedSlots[slotIndex];
-      if (!slot) break;
-      list.push({
-        rombelId: assignment.rombelId,
-        timeSlotId: slot.id,
-        teachingAssignmentId: assignment.id,
-        room: null
-      });
-    }
-  });
-
-  return Array.from(slotsByRombel.values()).flat();
-};
+  approveScheduleBatch,
+  getScheduleBatchDetail,
+  changeDraftScheduleAssignment,
+  generateDraftScheduleBatch,
+  listScheduleBatches,
+  listScheduleItems,
+  moveDraftScheduleItem,
+  rejectScheduleBatch,
+  submitScheduleBatch,
+  updateDraftScheduleItem
+} = require('../services/scheduleBatchService');
+const { validateScheduleGenerationData } = require('../services/scheduleValidationService');
+const { handleControllerError, serializeValidationResult } = require('../utils/controllerUtils');
 
 const list = async (req, res) => {
-  const { periodId, rombelId } = req.query;
-  const where = {};
-  if (periodId) {
-    where.periodId = periodId;
+  try {
+    const data = await listScheduleItems({ ...req.query, user: req.user });
+    return res.json(data);
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal memuat jadwal');
   }
-  if (rombelId) {
-    where.rombelId = rombelId;
+};
+
+const listBatches = async (req, res) => {
+  try {
+    const data = await listScheduleBatches({ ...req.query, user: req.user });
+    return res.json(data);
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal memuat batch jadwal');
   }
+};
 
-  const schedules = await Schedule.findAll({
-    where,
-    include: [
-      { model: TimeSlot },
-      {
-        model: TeachingAssignment,
-        include: [
-          { model: Subject },
-          { model: Tendik },
-          { model: Rombel },
-          { model: AcademicPeriod }
-        ]
-      }
-    ],
-    order: [
-      [{ model: TeachingAssignment }, { model: Rombel }, 'name', 'ASC'],
-      [{ model: TimeSlot }, 'dayOfWeek', 'ASC'],
-      [{ model: TimeSlot }, 'startTime', 'ASC']
-    ]
-  });
+const batchDetail = async (req, res) => {
+  try {
+    const data = await getScheduleBatchDetail(req.params.batchId, { user: req.user });
+    return res.json(data);
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal memuat detail batch jadwal');
+  }
+};
 
-  const payload = schedules.map((item) => ({
-    id: item.id,
-    periodId: item.periodId,
-    rombelId: item.rombelId,
-    timeSlot: {
-      id: item.TimeSlot?.id,
-      dayOfWeek: item.TimeSlot?.dayOfWeek,
-      startTime: item.TimeSlot?.startTime,
-      endTime: item.TimeSlot?.endTime,
-      label: item.TimeSlot?.label
-    },
-    teachingAssignment: {
-      id: item.TeachingAssignment?.id,
-      weeklyHours: item.TeachingAssignment?.weeklyHours,
-      subject: item.TeachingAssignment?.Subject,
-      teacher: item.TeachingAssignment?.Tendik,
-      rombel: item.TeachingAssignment?.Rombel,
-      period: item.TeachingAssignment?.AcademicPeriod
-    },
-    room: item.room
-  }));
-
-  return res.json(payload);
+const validate = async (req, res) => {
+  try {
+    const periodId = req.query.periodId ?? req.body?.periodId;
+    const result = await validateScheduleGenerationData(periodId);
+    return res.json(serializeValidationResult(result));
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal memvalidasi data penjadwalan');
+  }
 };
 
 const generate = async (req, res) => {
@@ -134,75 +56,103 @@ const generate = async (req, res) => {
     return res.status(400).json({ message: 'Periode wajib diisi' });
   }
 
-  const [assignments, timeSlots] = await Promise.all([
-    TeachingAssignment.findAll({ where: { periodId } }),
-    TimeSlot.findAll({ where: { periodId } })
-  ]);
-
-  if (!assignments.length || !timeSlots.length) {
-    return res.status(400).json({ message: 'Data pengampu atau jam pelajaran belum lengkap' });
-  }
-
-  let scheduleItems = [];
-  const schedulerUrl = process.env.SCHEDULER_URL || 'http://localhost:8000';
-
   try {
-    const payload = {
-      period_id: Number(periodId),
-      ...buildPayload(assignments, timeSlots),
-      constraints: constraints || {}
-    };
-
-    const response = await fetch(`${schedulerUrl}/schedule/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+    const data = await generateDraftScheduleBatch({
+      periodId,
+      constraints,
+      userId: req.user?.id || null
     });
-
-    if (response.ok) {
-      const data = await response.json();
-      scheduleItems = normalizeScheduleItems(data.schedule);
-    }
+    return res.json(data);
   } catch (err) {
-    scheduleItems = [];
+    return handleControllerError(res, err, 'Gagal menyimpan draft jadwal');
   }
+};
 
-  if (!scheduleItems.length) {
-    scheduleItems = fallbackGenerate(assignments, timeSlots);
-  }
-
-  if (!scheduleItems.length) {
-    return res.status(400).json({ message: 'Gagal membuat jadwal' });
-  }
-
-  const transaction = await sequelize.transaction();
+const updateItem = async (req, res) => {
   try {
-    await Schedule.destroy({ where: { periodId }, transaction });
-    await Schedule.bulkCreate(
-      scheduleItems.map((item) => ({
-        periodId,
-        rombelId: item.rombelId,
-        timeSlotId: item.timeSlotId,
-        teachingAssignmentId: item.teachingAssignmentId,
-        room: item.room || null
-      })),
-      { transaction }
-    );
+    const data = await updateDraftScheduleItem(req.params.id, req.body);
+    return res.json(data);
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal memperbarui item draft jadwal');
+  }
+};
 
-    await transaction.commit();
+const moveItemSlot = async (req, res) => {
+  try {
+    const data = await moveDraftScheduleItem(req.params.id, req.body);
+    return res.json(data);
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal memindahkan slot jadwal draft');
+  }
+};
 
+const changeItemAssignment = async (req, res) => {
+  try {
+    const data = await changeDraftScheduleAssignment(req.params.id, req.body);
+    return res.json(data);
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal mengganti pengampu jadwal draft');
+  }
+};
+
+const submitBatch = async (req, res) => {
+  try {
+    const data = await submitScheduleBatch({
+      batchId: req.params.batchId,
+      actorId: req.user?.id || null,
+      notes: req.body?.notes
+    });
     return res.json({
-      message: 'Jadwal berhasil digenerate',
-      total: scheduleItems.length,
-      engine: scheduleItems.length ? 'hybrid-cpsat-ga (fallback if needed)' : 'none'
+      message: 'Batch jadwal berhasil diajukan untuk pengesahan',
+      batch: data
     });
   } catch (err) {
-    await transaction.rollback();
-    return res.status(500).json({ message: 'Gagal menyimpan jadwal' });
+    return handleControllerError(res, err, 'Gagal mengajukan batch jadwal');
+  }
+};
+
+const approveBatch = async (req, res) => {
+  try {
+    const data = await approveScheduleBatch({
+      batchId: req.params.batchId,
+      actorId: req.user?.id || null,
+      notes: req.body?.notes
+    });
+    return res.json({
+      message: 'Batch jadwal berhasil disetujui',
+      batch: data
+    });
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal menyetujui batch jadwal');
+  }
+};
+
+const rejectBatch = async (req, res) => {
+  try {
+    const data = await rejectScheduleBatch({
+      batchId: req.params.batchId,
+      actorId: req.user?.id || null,
+      notes: req.body?.notes
+    });
+    return res.json({
+      message: 'Batch jadwal berhasil ditolak',
+      batch: data
+    });
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal menolak batch jadwal');
   }
 };
 
 module.exports = {
   list,
-  generate
+  listBatches,
+  batchDetail,
+  validate,
+  generate,
+  updateItem,
+  moveItemSlot,
+  changeItemAssignment,
+  submitBatch,
+  approveBatch,
+  rejectBatch
 };

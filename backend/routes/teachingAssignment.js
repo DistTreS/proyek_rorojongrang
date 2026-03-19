@@ -1,6 +1,7 @@
 const express = require('express');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
+const { ACCESS } = require('../config/rbac');
 const {
   list,
   detail,
@@ -11,10 +12,10 @@ const {
 
 const router = express.Router();
 
-router.get('/', auth, authorize('super_admin', 'kepala_sekolah', 'wakasek', 'staff_tu', 'guru'), list);
-router.get('/:id', auth, authorize('super_admin', 'kepala_sekolah', 'wakasek', 'staff_tu', 'guru'), detail);
-router.post('/', auth, authorize('super_admin', 'wakasek'), create);
-router.put('/:id', auth, authorize('super_admin', 'wakasek'), update);
-router.delete('/:id', auth, authorize('super_admin', 'wakasek'), remove);
+router.get('/', auth, authorize(ACCESS.teachingAssignment.view), list);
+router.get('/:id', auth, authorize(ACCESS.teachingAssignment.view), detail);
+router.post('/', auth, authorize(ACCESS.teachingAssignment.manage), create);
+router.put('/:id', auth, authorize(ACCESS.teachingAssignment.manage), update);
+router.delete('/:id', auth, authorize(ACCESS.teachingAssignment.manage), remove);
 
 module.exports = router;

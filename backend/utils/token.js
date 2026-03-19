@@ -1,11 +1,12 @@
 const jwt = require('jsonwebtoken');
+const { normalizeRoles } = require('../config/rbac');
 
 const buildAccessToken = (user) => {
   return jwt.sign(
     {
       sub: user.id,
       username: user.username,
-      roles: user.roles || []
+      roles: normalizeRoles(user.roles)
     },
     process.env.JWT_ACCESS_SECRET,
     { expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m' }

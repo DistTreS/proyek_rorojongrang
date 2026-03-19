@@ -1,13 +1,14 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
-
-const AuthContext = createContext(null);
+import { normalizeRoles } from '../constants/rbac';
+import { AuthContext } from './auth-context';
 
 const loadTokens = () => {
   const raw = localStorage.getItem('auth');
   if (!raw) return null;
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return parsed ? { ...parsed, roles: normalizeRoles(parsed.roles) } : null;
   } catch {
     return null;
   }
@@ -17,8 +18,12 @@ export const AuthProvider = ({ children }) => {
   const [auth, setAuth] = useState(() => loadTokens());
 
   const login = (payload) => {
-    setAuth(payload);
-    localStorage.setItem('auth', JSON.stringify(payload));
+    const nextAuth = {
+      ...payload,
+      roles: normalizeRoles(payload?.roles)
+    };
+    setAuth(nextAuth);
+    localStorage.setItem('auth', JSON.stringify(nextAuth));
   };
 
   const logout = () => {
@@ -44,7 +49,7 @@ export const AuthProvider = ({ children }) => {
     api.get('/users/me')
       .then((res) => {
         if (!active) return;
-        const nextAuth = { ...auth, roles: res.data.roles || [] };
+        const nextAuth = { ...auth, roles: normalizeRoles(res.data.roles) };
         setAuth(nextAuth);
         localStorage.setItem('auth', JSON.stringify(nextAuth));
       })
@@ -56,13 +61,13 @@ export const AuthProvider = ({ children }) => {
     return () => {
       active = false;
     };
-  }, [auth?.accessToken]);
+  }, [auth]);
 
   const value = useMemo(() => ({
     auth,
     accessToken: auth?.accessToken || null,
     refreshToken: auth?.refreshToken || null,
-    roles: auth?.roles || [],
+    roles: normalizeRoles(auth?.roles),
     isAuthenticated: Boolean(auth?.accessToken),
     login,
     logout
@@ -73,12 +78,4 @@ export const AuthProvider = ({ children }) => {
       {children}
     </AuthContext.Provider>
   );
-};
-
-export const useAuth = () => {
-  const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error('useAuth must be used inside AuthProvider');
-  }
-  return ctx;
 };

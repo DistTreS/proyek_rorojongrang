@@ -19,10 +19,7 @@ const dayOptions = [
 
 const emptyMeetingForm = {
   date: '',
-  rombelId: '',
-  subjectId: '',
-  teacherId: '',
-  substituteTeacherId: '',
+  teachingAssignmentId: '',
   meetingNote: '',
   timeSlotIds: []
 };
@@ -35,11 +32,7 @@ const formatRombelLabel = (rombel) => {
 
 const Presensi = () => {
   const [meetings, setMeetings] = useState([]);
-  const [rombels, setRombels] = useState([]);
-  const [slots, setSlots] = useState([]);
-  const [periods, setPeriods] = useState([]);
-  const [subjects, setSubjects] = useState([]);
-  const [teachers, setTeachers] = useState([]);
+  const [teachingSchedule, setTeachingSchedule] = useState([]);
   const [meetingForm, setMeetingForm] = useState(emptyMeetingForm);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -58,20 +51,12 @@ const Presensi = () => {
     setLoading(true);
     setError(null);
     try {
-      const [meetingRes, rombelRes, slotRes, periodRes, subjectRes, tendikRes] = await Promise.all([
+      const [meetingRes, scheduleRes] = await Promise.all([
         api.get('/attendance/meetings'),
-        api.get('/rombel'),
-        api.get('/jam'),
-        api.get('/period'),
-        api.get('/mapel'),
-        api.get('/tendik')
+        api.get('/schedule')
       ]);
       setMeetings(meetingRes.data || []);
-      setRombels(rombelRes.data || []);
-      setSlots(slotRes.data || []);
-      setPeriods(periodRes.data || []);
-      setSubjects(subjectRes.data || []);
-      setTeachers((tendikRes.data || []).filter((item) => item.user?.roles?.includes('guru')));
+      setTeachingSchedule(scheduleRes.data || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal memuat presensi');
     } finally {
@@ -128,12 +113,15 @@ const Presensi = () => {
     setError(null);
     setSaving(true);
     try {
+      const assignment = assignmentMap.get(Number(meetingForm.teachingAssignmentId));
+      if (!assignment) {
+        setError('Pilih jadwal mengajar terlebih dahulu');
+        return;
+      }
       const payload = {
         date: meetingForm.date,
-        rombelId: meetingForm.rombelId ? Number(meetingForm.rombelId) : null,
-        subjectId: meetingForm.subjectId ? Number(meetingForm.subjectId) : null,
-        teacherId: meetingForm.teacherId ? Number(meetingForm.teacherId) : null,
-        substituteTeacherId: meetingForm.substituteTeacherId ? Number(meetingForm.substituteTeacherId) : null,
+        rombelId: assignment.rombel?.id || null,
+        subjectId: assignment.subject?.id || null,
         meetingNote: meetingForm.meetingNote.trim() || null,
         timeSlotIds: meetingForm.timeSlotIds
       };
@@ -208,11 +196,27 @@ const Presensi = () => {
     }
   };
 
-  const periodMap = useMemo(() => new Map(periods.map((p) => [p.id, p])), [periods]);
-  const rombelMap = useMemo(() => new Map(rombels.map((r) => [r.id, r])), [rombels]);
-  const subjectMap = useMemo(() => new Map(subjects.map((s) => [s.id, s])), [subjects]);
-  const teacherMap = useMemo(() => new Map(teachers.map((t) => [t.id, t])), [teachers]);
-  const selectedRombel = useMemo(() => rombelMap.get(Number(meetingForm.rombelId)), [meetingForm.rombelId, rombelMap]);
+  const teachingAssignments = useMemo(() => (
+    [...new Map(
+      teachingSchedule
+        .filter((item) => item.teachingAssignment?.id)
+        .map((item) => [
+          item.teachingAssignment.id,
+          {
+            ...item.teachingAssignment,
+            periodName: item.batch?.periodName || item.teachingAssignment?.period?.name || '-'
+          }
+        ])
+    ).values()]
+  ), [teachingSchedule]);
+  const assignmentMap = useMemo(
+    () => new Map(teachingAssignments.map((item) => [item.id, item])),
+    [teachingAssignments]
+  );
+  const selectedAssignment = useMemo(
+    () => assignmentMap.get(Number(meetingForm.teachingAssignmentId)) || null,
+    [assignmentMap, meetingForm.teachingAssignmentId]
+  );
   const selectedDay = useMemo(() => {
     if (!meetingForm.date) return null;
     const date = new Date(`${meetingForm.date}T00:00:00`);
@@ -222,24 +226,30 @@ const Presensi = () => {
   }, [meetingForm.date]);
   const activeDayFilter = selectedDay;
   const currentSlots = useMemo(() => {
-    if (!selectedRombel) return [];
+    if (!selectedAssignment) return [];
     if (!activeDayFilter) return [];
-    return slots.filter(
-      (slot) => slot.periodId === selectedRombel.periodId && slot.dayOfWeek === activeDayFilter
-    );
-  }, [slots, selectedRombel, activeDayFilter]);
+    return [...new Map(
+      teachingSchedule
+        .filter((item) => (
+          item.teachingAssignment?.id === selectedAssignment.id
+          && item.timeSlot?.dayOfWeek === activeDayFilter
+        ))
+        .map((item) => [item.timeSlot.id, item.timeSlot])
+    ).values()];
+  }, [teachingSchedule, selectedAssignment, activeDayFilter]);
 
   return (
     <section className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-semibold text-slate-900">Presensi</h1>
-          <p className="text-sm text-slate-600">Buat pertemuan dan kelola kehadiran siswa.</p>
+          <p className="text-sm text-slate-600">Buat pertemuan dan kelola kehadiran siswa berdasarkan jadwal mengajar resmi.</p>
         </div>
         <button
-          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
+          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700 disabled:opacity-60"
           type="button"
           onClick={openCreate}
+          disabled={!teachingAssignments.length}
         >
           + Buat Pertemuan
         </button>
@@ -248,6 +258,11 @@ const Presensi = () => {
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
+        </div>
+      )}
+      {!loading && !teachingAssignments.length && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Anda belum memiliki jadwal mengajar approved. Presensi baru bisa dibuat setelah jadwal resmi tersedia.
         </div>
       )}
 
@@ -330,68 +345,54 @@ const Presensi = () => {
                     <input
                       type="date"
                       value={meetingForm.date}
-                      onChange={(e) => updateMeetingForm('date', e.target.value)}
+                      onChange={(e) => {
+                        updateMeetingForm('date', e.target.value);
+                        updateMeetingForm('timeSlotIds', []);
+                      }}
                       required
                       className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
                     />
                   </label>
                   <label className="text-sm font-medium text-slate-700">
-                    Rombel
+                    Jadwal Mengajar
                     <select
-                      value={meetingForm.rombelId}
-                      onChange={(e) => updateMeetingForm('rombelId', e.target.value)}
+                      value={meetingForm.teachingAssignmentId}
+                      onChange={(e) => {
+                        updateMeetingForm('teachingAssignmentId', e.target.value);
+                        updateMeetingForm('timeSlotIds', []);
+                      }}
                       required
                       className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
                     >
-                      <option value="">Pilih rombel</option>
-                      {rombels.map((rombel) => (
-                        <option key={rombel.id} value={rombel.id}>{formatRombelLabel(rombel)}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Mata Pelajaran
-                    <select
-                      value={meetingForm.subjectId}
-                      onChange={(e) => updateMeetingForm('subjectId', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    >
-                      <option value="">Pilih mapel</option>
-                      {subjects.map((subject) => (
-                        <option key={subject.id} value={subject.id}>
-                          {subject.name} • {subject.type === 'peminatan' ? 'Peminatan' : 'Wajib'}
+                      <option value="">Pilih pengampu yang diajar</option>
+                      {teachingAssignments.map((assignment) => (
+                        <option key={assignment.id} value={assignment.id}>
+                          {assignment.rombel?.name || '-'} • {assignment.subject?.name || '-'} • {assignment.periodName}
                         </option>
                       ))}
                     </select>
                   </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Guru Pengajar
-                    <select
-                      value={meetingForm.teacherId}
-                      onChange={(e) => updateMeetingForm('teacherId', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    >
-                      <option value="">Pilih guru</option>
-                      {teachers.map((teacher) => (
-                        <option key={teacher.id} value={teacher.id}>{teacher.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Guru Pengganti (opsional)
-                    <select
-                      value={meetingForm.substituteTeacherId}
-                      onChange={(e) => updateMeetingForm('substituteTeacherId', e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    >
-                      <option value="">Tidak ada</option>
-                      {teachers.map((teacher) => (
-                        <option key={teacher.id} value={teacher.id}>{teacher.name}</option>
-                      ))}
-                    </select>
-                  </label>
+                  {selectedAssignment && (
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 sm:col-span-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Ringkasan Pengampu
+                      </div>
+                      <div className="mt-2 grid gap-3 sm:grid-cols-3">
+                        <div>
+                          <div className="text-xs uppercase text-slate-500">Rombel</div>
+                          <div className="font-semibold">{formatRombelLabel(selectedAssignment.rombel)}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs uppercase text-slate-500">Mapel</div>
+                          <div className="font-semibold">{selectedAssignment.subject?.name || '-'}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs uppercase text-slate-500">Periode</div>
+                          <div className="font-semibold">{selectedAssignment.periodName}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <label className="text-sm font-medium text-slate-700 sm:col-span-2">
                     Catatan Guru (opsional)
                     <input
@@ -422,9 +423,11 @@ const Presensi = () => {
                     ))}
                     {!currentSlots.length && (
                       <div className="text-sm text-slate-500">
-                        {meetingForm.date
-                          ? 'Belum ada jam pelajaran untuk hari tersebut.'
-                          : 'Pilih tanggal untuk menampilkan jam pelajaran.'}
+                        {!meetingForm.teachingAssignmentId
+                          ? 'Pilih jadwal mengajar terlebih dahulu.'
+                          : meetingForm.date
+                            ? 'Tidak ada slot resmi pada hari tersebut untuk pengampu ini.'
+                            : 'Pilih tanggal untuk menampilkan slot resmi.'}
                       </div>
                     )}
                   </div>

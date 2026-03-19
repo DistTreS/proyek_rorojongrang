@@ -4,6 +4,7 @@ const fs = require('fs');
 const multer = require('multer');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
+const { ACCESS } = require('../config/rbac');
 const {
   list,
   listMeetings,
@@ -36,16 +37,16 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-router.get('/', auth, authorize('super_admin', 'kepala_sekolah', 'wakasek', 'staff_tu', 'guru'), list);
-router.get('/summary', auth, authorize('super_admin', 'kepala_sekolah', 'wakasek', 'staff_tu', 'guru'), summary);
-router.get('/meetings', auth, authorize('super_admin', 'kepala_sekolah', 'wakasek', 'staff_tu', 'guru'), listMeetings);
-router.get('/meetings/:meetingId', auth, authorize('super_admin', 'kepala_sekolah', 'wakasek', 'staff_tu', 'guru'), detailMeeting);
-router.post('/meetings', auth, authorize('super_admin', 'guru'), createMeeting);
-router.put('/meetings/:meetingId/entries', auth, authorize('super_admin', 'guru'), updateMeetingEntries);
-router.post('/meetings/:meetingId/students/:studentId/attachment', auth, authorize('super_admin', 'guru'), upload.single('file'), uploadMeetingAttachment);
-router.delete('/meetings/:meetingId', auth, authorize('super_admin', 'guru'), deleteMeeting);
-router.post('/', auth, authorize('super_admin', 'guru'), create);
-router.put('/:id', auth, authorize('super_admin', 'guru'), update);
-router.delete('/:id', auth, authorize('super_admin', 'guru'), remove);
+router.get('/', auth, authorize(ACCESS.attendance.view), list);
+router.get('/summary', auth, authorize(ACCESS.attendance.view), summary);
+router.get('/meetings', auth, authorize(ACCESS.attendance.view), listMeetings);
+router.get('/meetings/:meetingId', auth, authorize(ACCESS.attendance.view), detailMeeting);
+router.post('/meetings', auth, authorize(ACCESS.attendance.manage), createMeeting);
+router.put('/meetings/:meetingId/entries', auth, authorize(ACCESS.attendance.manage), updateMeetingEntries);
+router.post('/meetings/:meetingId/students/:studentId/attachment', auth, authorize(ACCESS.attendance.manage), upload.single('file'), uploadMeetingAttachment);
+router.delete('/meetings/:meetingId', auth, authorize(ACCESS.attendance.manage), deleteMeeting);
+router.post('/', auth, authorize(ACCESS.attendance.manage), create);
+router.put('/:id', auth, authorize(ACCESS.attendance.manage), update);
+router.delete('/:id', auth, authorize(ACCESS.attendance.manage), remove);
 
 module.exports = router;

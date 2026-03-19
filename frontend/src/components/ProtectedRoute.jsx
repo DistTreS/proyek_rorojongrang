@@ -1,5 +1,6 @@
 import { Navigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
+import { canAccess } from '../constants/rbac';
 
 const ProtectedRoute = ({ children, roles = [] }) => {
   const { isAuthenticated, roles: userRoles } = useAuth();
@@ -8,7 +9,7 @@ const ProtectedRoute = ({ children, roles = [] }) => {
     return <Navigate to="/login" replace />;
   }
 
-  if (roles.length && !roles.some((role) => userRoles.includes(role))) {
+  if (!canAccess(userRoles, roles)) {
     return <Navigate to="/" replace />;
   }
 

@@ -1,10 +1,25 @@
 const express = require('express');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
-const { me } = require('../controllers/userController');
+const { ACCESS } = require('../config/rbac');
+const {
+  me,
+  updateMe,
+  list,
+  detail,
+  create,
+  update,
+  remove
+} = require('../controllers/userController');
 
 const router = express.Router();
 
-router.get('/me', auth, authorize('super_admin', 'kepala_sekolah', 'wakasek', 'staff_tu', 'guru'), me);
+router.get('/me', auth, authorize(ACCESS.users.me), me);
+router.put('/me', auth, authorize(ACCESS.users.me), updateMe);
+router.get('/', auth, authorize(ACCESS.users.admin), list);
+router.get('/:id', auth, authorize(ACCESS.users.admin), detail);
+router.post('/', auth, authorize(ACCESS.users.admin), create);
+router.put('/:id', auth, authorize(ACCESS.users.admin), update);
+router.delete('/:id', auth, authorize(ACCESS.users.admin), remove);
 
 module.exports = router;

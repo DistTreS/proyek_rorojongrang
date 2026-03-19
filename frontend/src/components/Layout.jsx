@@ -1,27 +1,17 @@
 import { useMemo, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
+import { ROLE_LABELS } from '../constants/rbac';
+import { getVisibleNavSections } from '../config/navigation';
 
 const Layout = ({ children }) => {
   const { roles, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const canManageTendik = roles.some((role) => ['super_admin', 'kepala_sekolah', 'staff_tu'].includes(role));
-
-  const links = useMemo(() => ([
-    { to: '/', label: 'Dashboard', show: true },
-    { to: '/tendik', label: 'Tendik', show: canManageTendik },
-    { to: '/siswa', label: 'Siswa', show: true },
-    { to: '/periode', label: 'Periode', show: true },
-    { to: '/rombel', label: 'Rombel', show: true },
-    { to: '/mapel', label: 'Mapel', show: true },
-    { to: '/pengampu', label: 'Pengampu', show: true },
-    { to: '/jam-pelajaran', label: 'Jam Pelajaran', show: true },
-    { to: '/catatan', label: 'Catatan Siswa', show: true },
-    { to: '/jadwal', label: 'Jadwal', show: true },
-    { to: '/presensi', label: 'Presensi', show: true },
-    { to: '/laporan', label: 'Laporan', show: true }
-  ]), [canManageTendik]);
+  const navSections = useMemo(() => getVisibleNavSections(roles), [roles]);
+  const roleLabels = useMemo(() => (
+    roles.length ? roles.map((role) => ROLE_LABELS[role] || role) : ['Guest']
+  ), [roles]);
 
   const navClass = ({ isActive }) => (
     `flex items-center justify-between rounded-xl px-3 py-2 text-sm font-medium transition ${
@@ -34,17 +24,26 @@ const Layout = ({ children }) => {
       <div className="flex min-h-screen">
         <aside className="hidden w-72 flex-col border-r border-slate-200 bg-white px-6 py-8 lg:flex">
           <div className="text-lg font-semibold text-slate-900">SIA SMA 1 Hiliran Gumanti</div>
-          <p className="mt-1 text-xs text-slate-500">Sistem Informasi Akademik</p>
-          <nav className="mt-8 flex flex-col gap-2">
-            {links.filter((link) => link.show).map((link) => (
-              <NavLink key={link.to} to={link.to} className={navClass}>
-                {link.label}
-              </NavLink>
+          <p className="mt-1 text-xs text-slate-500">Dashboard berbasis role</p>
+          <nav className="mt-8 flex flex-col gap-6">
+            {navSections.map((section) => (
+              <div key={section.key} className="space-y-2">
+                <div className="px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  {section.label}
+                </div>
+                <div className="flex flex-col gap-2">
+                  {section.items.map((item) => (
+                    <NavLink key={item.key} to={item.path} className={navClass}>
+                      {item.resolvedLabel}
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
             ))}
           </nav>
           <div className="mt-auto space-y-3 pt-8">
             <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-700">
-              {(roles.length ? roles : ['guest']).map((role) => (
+              {roleLabels.map((role) => (
                 <span key={role} className="rounded-full bg-emerald-100 px-3 py-1">
                   {role}
                 </span>
@@ -68,7 +67,7 @@ const Layout = ({ children }) => {
               Menu
             </button>
             <div className="text-sm font-semibold text-slate-900">SIA SMA 1 Hiliran Gumanti</div>
-            <div className="text-xs text-slate-500">{roles[0] || 'guest'}</div>
+            <div className="text-xs text-slate-500">{roleLabels[0]}</div>
           </header>
 
           {mobileOpen && (
@@ -78,7 +77,7 @@ const Layout = ({ children }) => {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-lg font-semibold text-slate-900">SIA SMA 1 Hiliran Gumanti</div>
-                    <div className="text-xs text-slate-500">Sistem Informasi Akademik</div>
+                    <div className="text-xs text-slate-500">Dashboard berbasis role</div>
                   </div>
                   <button
                     className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
@@ -87,20 +86,29 @@ const Layout = ({ children }) => {
                     Tutup
                   </button>
                 </div>
-                <nav className="mt-6 flex flex-col gap-2">
-                  {links.filter((link) => link.show).map((link) => (
-                    <NavLink
-                      key={link.to}
-                      to={link.to}
-                      className={navClass}
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      {link.label}
-                    </NavLink>
+                <nav className="mt-6 flex flex-col gap-6">
+                  {navSections.map((section) => (
+                    <div key={section.key} className="space-y-2">
+                      <div className="px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                        {section.label}
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        {section.items.map((item) => (
+                          <NavLink
+                            key={item.key}
+                            to={item.path}
+                            className={navClass}
+                            onClick={() => setMobileOpen(false)}
+                          >
+                            {item.resolvedLabel}
+                          </NavLink>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </nav>
                 <div className="mt-6 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                  {(roles.length ? roles : ['guest']).map((role) => (
+                  {roleLabels.map((role) => (
                     <span key={role} className="rounded-full bg-emerald-100 px-3 py-1">
                       {role}
                     </span>

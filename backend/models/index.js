@@ -13,9 +13,12 @@ const Subject = require('./Subject')(sequelize, Sequelize.DataTypes);
 const AcademicPeriod = require('./AcademicPeriod')(sequelize, Sequelize.DataTypes);
 const TeachingAssignment = require('./TeachingAssignment')(sequelize, Sequelize.DataTypes);
 const TimeSlot = require('./TimeSlot')(sequelize, Sequelize.DataTypes);
+const ScheduleBatch = require('./ScheduleBatch')(sequelize, Sequelize.DataTypes);
+const ScheduleBatchLog = require('./ScheduleBatchLog')(sequelize, Sequelize.DataTypes);
 const Schedule = require('./Schedule')(sequelize, Sequelize.DataTypes);
 const Attendance = require('./Attendance')(sequelize, Sequelize.DataTypes);
 const StudentNote = require('./StudentNote')(sequelize, Sequelize.DataTypes);
+const TeacherPreference = require('./TeacherPreference')(sequelize, Sequelize.DataTypes);
 
 User.belongsToMany(Role, { through: UserRole, foreignKey: 'userId', otherKey: 'roleId' });
 Role.belongsToMany(User, { through: UserRole, foreignKey: 'roleId', otherKey: 'userId' });
@@ -32,6 +35,9 @@ Rombel.belongsToMany(Student, { through: StudentRombel, foreignKey: 'rombelId', 
 Rombel.belongsTo(AcademicPeriod, { foreignKey: 'periodId' });
 AcademicPeriod.hasMany(Rombel, { foreignKey: 'periodId' });
 
+Subject.belongsTo(AcademicPeriod, { foreignKey: 'periodId' });
+AcademicPeriod.hasMany(Subject, { foreignKey: 'periodId' });
+
 TeachingAssignment.belongsTo(Tendik, { foreignKey: 'teacherId' });
 Tendik.hasMany(TeachingAssignment, { foreignKey: 'teacherId' });
 TeachingAssignment.belongsTo(Subject, { foreignKey: 'subjectId' });
@@ -44,6 +50,24 @@ AcademicPeriod.hasMany(TeachingAssignment, { foreignKey: 'periodId' });
 TimeSlot.belongsTo(AcademicPeriod, { foreignKey: 'periodId' });
 AcademicPeriod.hasMany(TimeSlot, { foreignKey: 'periodId' });
 
+TeacherPreference.belongsTo(Tendik, { foreignKey: 'teacherId', as: 'Teacher' });
+Tendik.hasMany(TeacherPreference, { foreignKey: 'teacherId', as: 'TeacherPreferences' });
+TeacherPreference.belongsTo(AcademicPeriod, { foreignKey: 'periodId' });
+AcademicPeriod.hasMany(TeacherPreference, { foreignKey: 'periodId' });
+
+ScheduleBatch.belongsTo(AcademicPeriod, { foreignKey: 'periodId' });
+AcademicPeriod.hasMany(ScheduleBatch, { foreignKey: 'periodId' });
+ScheduleBatch.belongsTo(User, { foreignKey: 'submittedBy', as: 'Submitter' });
+User.hasMany(ScheduleBatch, { foreignKey: 'submittedBy', as: 'SubmittedScheduleBatches' });
+ScheduleBatch.belongsTo(User, { foreignKey: 'approvedBy', as: 'Approver' });
+User.hasMany(ScheduleBatch, { foreignKey: 'approvedBy', as: 'ApprovedScheduleBatches' });
+ScheduleBatchLog.belongsTo(ScheduleBatch, { foreignKey: 'batchId' });
+ScheduleBatch.hasMany(ScheduleBatchLog, { foreignKey: 'batchId' });
+ScheduleBatchLog.belongsTo(User, { foreignKey: 'actorId', as: 'Actor' });
+User.hasMany(ScheduleBatchLog, { foreignKey: 'actorId', as: 'ScheduleBatchLogs' });
+
+Schedule.belongsTo(ScheduleBatch, { foreignKey: 'batchId' });
+ScheduleBatch.hasMany(Schedule, { foreignKey: 'batchId' });
 Schedule.belongsTo(AcademicPeriod, { foreignKey: 'periodId' });
 Schedule.belongsTo(Rombel, { foreignKey: 'rombelId' });
 Schedule.belongsTo(TimeSlot, { foreignKey: 'timeSlotId' });
@@ -74,7 +98,10 @@ module.exports = {
   AcademicPeriod,
   TeachingAssignment,
   TimeSlot,
+  ScheduleBatch,
+  ScheduleBatchLog,
   Schedule,
   Attendance,
-  StudentNote
+  StudentNote,
+  TeacherPreference
 };

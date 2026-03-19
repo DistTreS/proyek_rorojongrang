@@ -2,17 +2,12 @@
 
 const bcrypt = require('bcryptjs');
 require('dotenv').config();
+const { ROLE_LIST } = require('../config/rbac');
 
 module.exports = {
   async up(queryInterface) {
     const now = new Date();
-    const roles = [
-      'super_admin',
-      'kepala_sekolah',
-      'wakasek',
-      'staff_tu',
-      'guru'
-    ];
+    const roles = ROLE_LIST;
 
     for (const role of roles) {
       await queryInterface.sequelize.query(
@@ -21,9 +16,9 @@ module.exports = {
       );
     }
 
-    const username = process.env.SUPER_ADMIN_USERNAME || 'admin';
-    const email = process.env.SUPER_ADMIN_EMAIL || 'admin@example.com';
-    const password = process.env.SUPER_ADMIN_PASSWORD || 'admin123';
+    const username = process.env.BOOTSTRAP_USERNAME || 'admin';
+    const email = process.env.BOOTSTRAP_EMAIL || 'admin@example.com';
+    const password = process.env.BOOTSTRAP_PASSWORD || 'admin123';
 
     const [existing] = await queryInterface.sequelize.query(
       'SELECT id FROM User WHERE username = ? OR email = ? LIMIT 1',
@@ -43,21 +38,21 @@ module.exports = {
     }
 
     const [roleRows] = await queryInterface.sequelize.query(
-      'SELECT id FROM Role WHERE name = ? LIMIT 1',
-      { replacements: ['super_admin'] }
+      `SELECT id FROM Role WHERE name IN (${roles.map(() => '?').join(', ')})`,
+      { replacements: roles }
     );
 
-    if (roleRows.length) {
+    for (const roleRow of roleRows) {
       await queryInterface.sequelize.query(
         'INSERT IGNORE INTO UserRole (user_id, role_id, created_at, updated_at) VALUES (?, ?, ?, ?)',
-        { replacements: [userId, roleRows[0].id, now, now] }
+        { replacements: [userId, roleRow.id, now, now] }
       );
     }
   },
 
   async down(queryInterface) {
-    const username = process.env.SUPER_ADMIN_USERNAME || 'admin';
-    const email = process.env.SUPER_ADMIN_EMAIL || 'admin@example.com';
+    const username = process.env.BOOTSTRAP_USERNAME || 'admin';
+    const email = process.env.BOOTSTRAP_EMAIL || 'admin@example.com';
 
     const [users] = await queryInterface.sequelize.query(
       'SELECT id FROM User WHERE username = ? OR email = ? LIMIT 1',
@@ -78,8 +73,8 @@ module.exports = {
     }
 
     await queryInterface.sequelize.query(
-      'DELETE FROM Role WHERE name IN (?, ?, ?, ?, ?)',
-      { replacements: ['super_admin', 'kepala_sekolah', 'wakasek', 'staff_tu', 'guru'] }
+      `DELETE FROM Role WHERE name IN (${ROLE_LIST.map(() => '?').join(', ')})`,
+      { replacements: ROLE_LIST }
     );
   }
 };

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { normalizeRoles } from '../constants/rbac';
 
 const baseURL = import.meta.env.VITE_API_URL || '/api';
 
@@ -9,7 +10,8 @@ const getStoredAuth = () => {
   const raw = localStorage.getItem('auth');
   if (!raw) return null;
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return parsed ? { ...parsed, roles: normalizeRoles(parsed.roles) } : null;
   } catch {
     return null;
   }
@@ -48,7 +50,7 @@ api.interceptors.response.use(
           ...auth,
           accessToken: data.accessToken,
           refreshToken: data.refreshToken,
-          roles: data.roles || auth.roles || []
+          roles: normalizeRoles(data.roles || auth.roles || [])
         };
         localStorage.setItem('auth', JSON.stringify(nextAuth));
         emitAuthUpdate();

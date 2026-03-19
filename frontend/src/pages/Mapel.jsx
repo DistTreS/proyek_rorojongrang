@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
 
 const emptyForm = {
   code: '',
   name: '',
-  type: 'wajib'
+  type: 'wajib',
+  periodId: ''
 };
 
 const typeOptions = [
@@ -12,20 +13,28 @@ const typeOptions = [
   { value: 'peminatan', label: 'Peminatan' }
 ];
 
+const typeLabel = (value) => (value === 'peminatan' ? 'Peminatan' : 'Wajib');
+
 const Mapel = () => {
   const [subjects, setSubjects] = useState([]);
+  const [periods, setPeriods] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [modal, setModal] = useState({ type: null, item: null });
+  const [filterPeriodId, setFilterPeriodId] = useState('');
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await api.get('/mapel');
-      setSubjects(data);
+      const [subjectRes, periodRes] = await Promise.all([
+        api.get('/mapel'),
+        api.get('/period')
+      ]);
+      setSubjects(subjectRes.data || []);
+      setPeriods(periodRes.data || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal memuat mapel');
     } finally {
@@ -37,6 +46,12 @@ const Mapel = () => {
     load();
   }, []);
 
+  const periodMap = useMemo(() => new Map(periods.map((period) => [period.id, period])), [periods]);
+  const filteredSubjects = useMemo(() => {
+    if (!filterPeriodId) return subjects;
+    return subjects.filter((subject) => subject.periodId === Number(filterPeriodId));
+  }, [filterPeriodId, subjects]);
+
   const updateForm = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
@@ -46,28 +61,18 @@ const Mapel = () => {
     setEditingId(null);
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    setError(null);
+  const closeModal = () => {
+    setModal({ type: null, item: null });
+    resetForm();
+  };
 
-    const payload = {
-      code: form.code.trim() || null,
-      name: form.name.trim(),
-      type: form.type || 'wajib'
-    };
+  const openCreate = () => {
+    resetForm();
+    setModal({ type: 'create', item: null });
+  };
 
-    try {
-      if (editingId) {
-        await api.put(`/mapel/${editingId}`, payload);
-      } else {
-        await api.post('/mapel', payload);
-      }
-      resetForm();
-      setModal({ type: null, item: null });
-      load();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Gagal menyimpan mapel');
-    }
+  const openDetail = (subject) => {
+    setModal({ type: 'detail', item: subject });
   };
 
   const handleEdit = (subject) => {
@@ -75,7 +80,8 @@ const Mapel = () => {
     setForm({
       code: subject.code || '',
       name: subject.name,
-      type: subject.type || 'wajib'
+      type: subject.type || 'wajib',
+      periodId: subject.periodId || ''
     });
     setModal({ type: 'edit', item: subject });
   };
@@ -95,17 +101,33 @@ const Mapel = () => {
     }
   };
 
-  const openCreate = () => {
-    resetForm();
-    setModal({ type: 'create', item: null });
-  };
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError(null);
 
-  const openDetail = (subject) => {
-    setModal({ type: 'detail', item: subject });
-  };
+    if (!form.periodId || !form.name.trim()) {
+      setError('Periode dan nama mata pelajaran wajib diisi');
+      return;
+    }
 
-  const closeModal = () => {
-    setModal({ type: null, item: null });
+    const payload = {
+      code: form.code.trim() || null,
+      name: form.name.trim(),
+      type: form.type || 'wajib',
+      periodId: Number(form.periodId)
+    };
+
+    try {
+      if (editingId) {
+        await api.put(`/mapel/${editingId}`, payload);
+      } else {
+        await api.post('/mapel', payload);
+      }
+      closeModal();
+      load();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Gagal menyimpan mapel');
+    }
   };
 
   return (
@@ -113,7 +135,7 @@ const Mapel = () => {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-semibold text-slate-900">Mata Pelajaran</h1>
-          <p className="text-sm text-slate-600">Kelola daftar mata pelajaran.</p>
+          <p className="text-sm text-slate-600">Kelola data mapel per periode akademik.</p>
         </div>
         <button
           className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
@@ -131,56 +153,73 @@ const Mapel = () => {
       )}
 
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
             <h2 className="text-lg font-semibold text-slate-900">Daftar Mapel</h2>
-            <span className="text-xs text-slate-500">{subjects.length} mapel</span>
+            <p className="text-xs text-slate-500">{filteredSubjects.length} mapel</p>
           </div>
-          <div className="mt-5 hidden grid-cols-[1.4fr_1fr_0.8fr_0.8fr] gap-4 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
-            <div>Nama</div>
-            <div>Kode</div>
-            <div>Jenis</div>
-            <div>Aksi</div>
+          <div className="w-full sm:w-72">
+            <select
+              value={filterPeriodId}
+              onChange={(e) => setFilterPeriodId(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+            >
+              <option value="">Semua periode</option>
+              {periods.map((period) => (
+                <option key={period.id} value={period.id}>{period.name}</option>
+              ))}
+            </select>
           </div>
-          <div className="mt-4 grid gap-4">
-            {subjects.map((subject) => (
-              <div
-                key={subject.id}
-                className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1.4fr_1fr_0.8fr_0.8fr] md:items-center"
-              >
-                <div className="text-sm font-semibold text-slate-900">{subject.name}</div>
-                <div className="text-sm text-slate-700">{subject.code || '-'}</div>
-                <div className="text-sm text-slate-700">{subject.type === 'peminatan' ? 'Peminatan' : 'Wajib'}</div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={() => openDetail(subject)}
-                  >
-                    Detail
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={() => handleEdit(subject)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
-                    type="button"
-                    onClick={() => handleDelete(subject)}
-                  >
-                    Hapus
-                  </button>
-                </div>
+        </div>
+
+        <div className="mt-5 hidden grid-cols-[1.3fr_0.9fr_0.8fr_1.1fr_0.8fr] gap-4 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
+          <div>Nama</div>
+          <div>Kode</div>
+          <div>Jenis</div>
+          <div>Periode</div>
+          <div>Aksi</div>
+        </div>
+        <div className="mt-4 grid gap-4">
+          {filteredSubjects.map((subject) => (
+            <div
+              key={subject.id}
+              className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1.3fr_0.9fr_0.8fr_1.1fr_0.8fr] md:items-center"
+            >
+              <div className="text-sm font-semibold text-slate-900">{subject.name}</div>
+              <div className="text-sm text-slate-700">{subject.code || '-'}</div>
+              <div className="text-sm text-slate-700">{typeLabel(subject.type)}</div>
+              <div className="text-sm text-slate-700">{periodMap.get(subject.periodId)?.name || subject.periodName || '-'}</div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
+                  type="button"
+                  onClick={() => openDetail(subject)}
+                >
+                  Detail
+                </button>
+                <button
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
+                  type="button"
+                  onClick={() => handleEdit(subject)}
+                >
+                  Edit
+                </button>
+                <button
+                  className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
+                  type="button"
+                  onClick={() => handleDelete(subject)}
+                >
+                  Hapus
+                </button>
               </div>
-            ))}
-            {!subjects.length && !loading && (
-              <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-                Belum ada data.
-              </div>
-            )}
-          </div>
+            </div>
+          ))}
+          {!filteredSubjects.length && !loading && (
+            <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+              Belum ada data mapel.
+            </div>
+          )}
+        </div>
       </div>
 
       {modal.type && (
@@ -198,7 +237,8 @@ const Mapel = () => {
                 <div className="grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
                   <div><span className="text-xs uppercase text-slate-500">Nama</span><div className="font-semibold">{modal.item.name}</div></div>
                   <div><span className="text-xs uppercase text-slate-500">Kode</span><div className="font-semibold">{modal.item.code || '-'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Jenis</span><div className="font-semibold">{modal.item.type === 'peminatan' ? 'Peminatan' : 'Wajib'}</div></div>
+                  <div><span className="text-xs uppercase text-slate-500">Jenis</span><div className="font-semibold">{typeLabel(modal.item.type)}</div></div>
+                  <div><span className="text-xs uppercase text-slate-500">Periode</span><div className="font-semibold">{periodMap.get(modal.item.periodId)?.name || modal.item.periodName || '-'}</div></div>
                 </div>
               </div>
             )}
@@ -214,6 +254,20 @@ const Mapel = () => {
                   </button>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="text-sm font-medium text-slate-700">
+                    Periode
+                    <select
+                      value={form.periodId}
+                      onChange={(e) => updateForm('periodId', e.target.value)}
+                      required
+                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+                    >
+                      <option value="">Pilih periode</option>
+                      {periods.map((period) => (
+                        <option key={period.id} value={period.id}>{period.name}</option>
+                      ))}
+                    </select>
+                  </label>
                   <label className="text-sm font-medium text-slate-700">
                     Kode
                     <input
@@ -231,7 +285,7 @@ const Mapel = () => {
                       className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
                     />
                   </label>
-                  <label className="text-sm font-medium text-slate-700 sm:col-span-2">
+                  <label className="text-sm font-medium text-slate-700">
                     Jenis
                     <select
                       value={form.type}
