@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize');
 const XLSX = require('xlsx');
 const { sequelize, User, Role, Tendik } = require('../models');
+const { paginateItems, parsePagination } = require('../utils/pagination');
 const {
   ROLE_LABELS,
   ROLES,
@@ -116,7 +117,9 @@ const ensureUniqueNip = async ({ nip, excludeTendikId }) => {
   }
 };
 
-const listTendik = async ({ search } = {}) => {
+const listTendik = async (query = {}) => {
+  const pagination = parsePagination(query);
+  const { search } = query;
   const tendik = await Tendik.findAll({
     include: [
       {
@@ -138,7 +141,7 @@ const listTendik = async ({ search } = {}) => {
     ))
     : tendik;
 
-  return filtered.map(formatTendik);
+  return paginateItems(filtered.map(formatTendik), pagination);
 };
 
 const getTendikDetail = async (id) => {

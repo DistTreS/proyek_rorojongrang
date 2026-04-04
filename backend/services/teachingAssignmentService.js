@@ -16,6 +16,7 @@ const {
   parseInteger,
   parsePositiveInteger
 } = require('./schedulingSupport');
+const { paginateItems, parsePagination } = require('../utils/pagination');
 
 const assignmentInclude = [
   {
@@ -119,7 +120,9 @@ const ensureAssignmentRelations = async ({ teacherId, subjectId, rombelId, perio
   };
 };
 
-const listTeachingAssignments = async ({ periodId } = {}) => {
+const listTeachingAssignments = async (query = {}) => {
+  const pagination = parsePagination(query);
+  const { periodId } = query;
   const where = {};
   if (periodId) {
     where.periodId = Number(periodId);
@@ -131,7 +134,7 @@ const listTeachingAssignments = async ({ periodId } = {}) => {
     order: [['periodId', 'DESC'], ['id', 'DESC']]
   });
 
-  return assignments.map(formatAssignment);
+  return paginateItems(assignments.map(formatAssignment), pagination);
 };
 
 const getTeachingAssignmentDetail = async (id) => {

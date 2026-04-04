@@ -15,7 +15,12 @@ pnpm-debug.log*
 
 # Build
 frontend/dist/
-backend/public/
+backend/public/*
+!backend/public/uploads/
+backend/public/uploads/*
+!backend/public/uploads/avatars/
+backend/public/uploads/avatars/*
+!backend/public/uploads/avatars/default-avatar.svg
 
 # Python
 __pycache__/

@@ -1,5 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
+import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
+import Select from '../components/ui/Select';
+import Badge from '../components/ui/Badge';
+import Modal from '../components/ui/Modal';
+import Pagination from '../components/ui/Pagination';
+import {
+  buildPageParams,
+  DEFAULT_PAGE_SIZE,
+  fetchAllPages,
+  normalizePaginatedResponse
+} from '../utils/pagination';
 
 const dayOptions = [
   { value: 1, label: 'Senin' },
@@ -35,20 +48,36 @@ const TeacherPreferences = () => {
   const [error, setError] = useState(null);
   const [modal, setModal] = useState({ type: null, item: null });
   const [filterPeriodId, setFilterPeriodId] = useState('');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    totalItems: 0,
+    totalPages: 1
+  });
 
-  const load = async () => {
+  const load = async (nextPage = page, nextPeriodId = filterPeriodId) => {
     setLoading(true);
     setError(null);
     try {
       const [preferenceRes, tendikRes, periodRes] = await Promise.all([
-        api.get('/teacher-preferences'),
-        api.get('/tendik'),
-        api.get('/period')
+        api.get('/teacher-preferences', {
+          params: buildPageParams({
+            page: nextPage,
+            pageSize: DEFAULT_PAGE_SIZE,
+            periodId: nextPeriodId || undefined
+          })
+        }),
+        fetchAllPages(api, '/tendik'),
+        fetchAllPages(api, '/period')
       ]);
 
-      setPreferences(preferenceRes.data || []);
-      setTeachers((tendikRes.data || []).filter((item) => item.user?.roles?.includes('guru')));
-      setPeriods(periodRes.data || []);
+      const normalized = normalizePaginatedResponse(preferenceRes.data);
+      setPreferences(normalized.items || []);
+      setPagination(normalized);
+      setPage(normalized.page);
+      setTeachers((tendikRes || []).filter(item => item.user?.roles?.includes('guru')));
+      setPeriods(periodRes || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal memuat preferensi guru');
     } finally {
@@ -57,20 +86,13 @@ const TeacherPreferences = () => {
   };
 
   useEffect(() => {
-    load();
+    load(1, filterPeriodId);
   }, []);
 
-  const teacherMap = useMemo(() => new Map(teachers.map((item) => [item.id, item])), [teachers]);
-  const periodMap = useMemo(() => new Map(periods.map((item) => [item.id, item])), [periods]);
+  const teacherMap = useMemo(() => new Map(teachers.map(item => [item.id, item])), [teachers]);
+  const periodMap = useMemo(() => new Map(periods.map(item => [item.id, item])), [periods]);
 
-  const filteredPreferences = useMemo(() => {
-    if (!filterPeriodId) return preferences;
-    return preferences.filter((item) => item.periodId === Number(filterPeriodId));
-  }, [filterPeriodId, preferences]);
-
-  const updateForm = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  };
+  const updateForm = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 
   const resetForm = () => {
     setForm(emptyForm);
@@ -78,13 +100,13 @@ const TeacherPreferences = () => {
   };
 
   const closeModal = () => {
-    setModal({ type: null, item: null });
+    setModal({ type: null });
     resetForm();
   };
 
   const openCreate = () => {
     resetForm();
-    setModal({ type: 'create', item: null });
+    setModal({ type: 'create' });
   };
 
   const openDetail = (preference) => {
@@ -102,7 +124,7 @@ const TeacherPreferences = () => {
       preferenceType: preference.preferenceType || 'avoid',
       notes: preference.notes || ''
     });
-    setModal({ type: 'edit', item: preference });
+    setModal({ type: 'edit' });
   };
 
   const handleDelete = (preference) => {
@@ -111,18 +133,17 @@ const TeacherPreferences = () => {
 
   const handleConfirmDelete = async () => {
     if (!modal.item) return;
-
     try {
       await api.delete(`/teacher-preferences/${modal.item.id}`);
-      setModal({ type: null, item: null });
+      setModal({ type: null });
       load();
     } catch (err) {
-      setError(err.response?.data?.message || 'Gagal menghapus preferensi guru');
+      setError(err.response?.data?.message || 'Gagal menghapus preferensi');
     }
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     setError(null);
 
     if (!form.teacherId || !form.periodId || !form.startTime || !form.endTime) {
@@ -150,285 +171,218 @@ const TeacherPreferences = () => {
       } else {
         await api.post('/teacher-preferences', payload);
       }
-
       closeModal();
       load();
     } catch (err) {
-      setError(err.response?.data?.message || 'Gagal menyimpan preferensi guru');
+      setError(err.response?.data?.message || 'Gagal menyimpan preferensi');
     }
   };
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-8">
+      <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-900">Preferensi Penjadwalan</h1>
-          <p className="text-sm text-slate-600">Kelola preferensi guru per periode untuk membantu proses generate jadwal.</p>
+          <h1 className="text-4xl font-semibold text-slate-900">Preferensi Penjadwalan Guru</h1>
+          <p className="text-slate-600 mt-1">Kelola preferensi dan larangan jadwal guru per periode</p>
         </div>
-        <button
-          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-          type="button"
-          onClick={openCreate}
-        >
+        <Button onClick={openCreate} size="lg">
           + Tambah Preferensi
-        </button>
+        </Button>
       </div>
 
       {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <Card className="p-4 border-red-200 bg-red-50 text-red-700">
           {error}
-        </div>
+        </Card>
       )}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Daftar Preferensi Guru</h2>
-            <p className="text-xs text-slate-500">{filteredPreferences.length} preferensi</p>
-          </div>
-          <div className="w-full sm:w-72">
-            <select
-              value={filterPeriodId}
-              onChange={(e) => setFilterPeriodId(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-            >
-              <option value="">Semua periode</option>
-              {periods.map((period) => (
-                <option key={period.id} value={period.id}>{period.name}</option>
-              ))}
-            </select>
-          </div>
+      {/* Filter */}
+      <Card className="p-6">
+        <Select
+          value={filterPeriodId}
+          onChange={(e) => {
+            const val = e.target.value;
+            setFilterPeriodId(val);
+            load(1, val);
+          }}
+          className="w-full md:w-80"
+        >
+          <option value="">Semua Periode</option>
+          {periods.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </Select>
+      </Card>
+
+      {/* Daftar Preferensi */}
+      <Card className="p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-lg font-semibold">Daftar Preferensi Guru</h2>
+          <span className="text-sm text-slate-500">{pagination.totalItems} preferensi</span>
         </div>
 
-        <div className="mt-5 hidden grid-cols-[1.1fr_1.2fr_0.8fr_1fr_1fr_0.8fr] gap-4 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
-          <div>Guru</div>
-          <div>Periode</div>
-          <div>Hari</div>
-          <div>Waktu</div>
-          <div>Tipe</div>
-          <div>Aksi</div>
-        </div>
-        <div className="mt-4 grid gap-4">
-          {filteredPreferences.map((item) => (
-            <div
-              key={item.id}
-              className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1.1fr_1.2fr_0.8fr_1fr_1fr_0.8fr] md:items-center"
-            >
-              <div className="text-sm font-semibold text-slate-900">
-                {teacherMap.get(item.teacherId)?.name || item.teacher?.name || '-'}
+        <div className="space-y-4">
+          {preferences.map(item => (
+            <Card key={item.id} className="p-6 hover:shadow-md transition-shadow">
+              <div className="grid grid-cols-1 md:grid-cols-[1.1fr_1.2fr_0.8fr_1fr_1fr_0.8fr] gap-4 md:items-center">
+                <div className="text-sm font-semibold text-slate-900">
+                  {teacherMap.get(item.teacherId)?.name || item.teacher?.name || '-'}
+                </div>
+                <div className="text-sm text-slate-700">
+                  {periodMap.get(item.periodId)?.name || item.period?.name || '-'}
+                </div>
+                <div className="text-sm text-slate-700">
+                  {dayOptions.find(d => d.value === item.dayOfWeek)?.label || '-'}
+                </div>
+                <div className="text-sm text-slate-700">
+                  {item.startTime} - {item.endTime}
+                </div>
+                <div>
+                  <Badge variant={item.preferenceType === 'prefer' ? 'success' : 'danger'}>
+                    {item.preferenceType === 'prefer' ? 'Preferensi' : 'Hindari'}
+                  </Badge>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => openDetail(item)}>
+                    Detail
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => handleEdit(item)}>
+                    Edit
+                  </Button>
+                  <Button variant="danger" size="sm" onClick={() => handleDelete(item)}>
+                    Hapus
+                  </Button>
+                </div>
               </div>
-              <div className="text-sm text-slate-700">
-                {periodMap.get(item.periodId)?.name || item.period?.name || '-'}
-              </div>
-              <div className="text-sm text-slate-700">
-                {dayOptions.find((day) => day.value === item.dayOfWeek)?.label || '-'}
-              </div>
-              <div className="text-sm text-slate-700">
-                {item.startTime} - {item.endTime}
-              </div>
-              <div className="text-sm text-slate-700">
-                {item.preferenceType === 'prefer' ? 'Preferensi' : 'Hindari'}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                  type="button"
-                  onClick={() => openDetail(item)}
-                >
-                  Detail
-                </button>
-                <button
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                  type="button"
-                  onClick={() => handleEdit(item)}
-                >
-                  Edit
-                </button>
-                <button
-                  className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
-                  type="button"
-                  onClick={() => handleDelete(item)}
-                >
-                  Hapus
-                </button>
-              </div>
-            </div>
+            </Card>
           ))}
-          {!filteredPreferences.length && !loading && (
-            <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-              Belum ada data preferensi guru.
-            </div>
+
+          {!preferences.length && !loading && (
+            <div className="text-center py-12 text-slate-500">Belum ada data preferensi guru.</div>
           )}
         </div>
-      </div>
 
-      {modal.type && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-slate-900/40" onClick={closeModal} />
-          <div className="relative w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
-            {modal.type === 'detail' && modal.item && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Detail Preferensi</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
-                  <div><span className="text-xs uppercase text-slate-500">Guru</span><div className="font-semibold">{teacherMap.get(modal.item.teacherId)?.name || modal.item.teacher?.name || '-'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Periode</span><div className="font-semibold">{periodMap.get(modal.item.periodId)?.name || modal.item.period?.name || '-'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Hari</span><div className="font-semibold">{dayOptions.find((day) => day.value === modal.item.dayOfWeek)?.label || '-'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Waktu</span><div className="font-semibold">{modal.item.startTime} - {modal.item.endTime}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Jenis</span><div className="font-semibold">{modal.item.preferenceType === 'prefer' ? 'Preferensi' : 'Hindari'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Catatan</span><div className="font-semibold">{modal.item.notes || '-'}</div></div>
-                </div>
+        <div className="mt-8 flex justify-center">
+          <Pagination
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            totalItems={pagination.totalItems}
+            pageSize={pagination.pageSize}
+            onPageChange={(nextPage) => load(nextPage, filterPeriodId)}
+          />
+        </div>
+      </Card>
+
+      {/* Modal */}
+      <Modal
+        isOpen={!!modal.type}
+        onClose={closeModal}
+        title={
+          modal.type === 'create' ? 'Tambah Preferensi' :
+          modal.type === 'edit' ? 'Edit Preferensi' :
+          modal.type === 'detail' ? 'Detail Preferensi' : 'Hapus Preferensi'
+        }
+      >
+        {(modal.type === 'create' || modal.type === 'edit') && (
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Guru</label>
+                <Select value={form.teacherId} onChange={e => updateForm('teacherId', e.target.value)} required>
+                  <option value="">Pilih Guru</option>
+                  {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </Select>
               </div>
-            )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Periode</label>
+                <Select value={form.periodId} onChange={e => updateForm('periodId', e.target.value)} required>
+                  <option value="">Pilih Periode</option>
+                  {periods.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </Select>
+              </div>
+            </div>
 
-            {(modal.type === 'create' || modal.type === 'edit') && (
-              <form className="space-y-4" onSubmit={handleSubmit}>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">
-                    {modal.type === 'edit' ? 'Edit Preferensi' : 'Tambah Preferensi'}
-                  </h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" type="button" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="text-sm font-medium text-slate-700">
-                    Guru
-                    <select
-                      value={form.teacherId}
-                      onChange={(e) => updateForm('teacherId', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    >
-                      <option value="">Pilih guru</option>
-                      {teachers.map((teacher) => (
-                        <option key={teacher.id} value={teacher.id}>{teacher.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Periode
-                    <select
-                      value={form.periodId}
-                      onChange={(e) => updateForm('periodId', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    >
-                      <option value="">Pilih periode</option>
-                      {periods.map((period) => (
-                        <option key={period.id} value={period.id}>{period.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Hari
-                    <select
-                      value={form.dayOfWeek}
-                      onChange={(e) => updateForm('dayOfWeek', e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    >
-                      {dayOptions.map((day) => (
-                        <option key={day.value} value={day.value}>{day.label}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Jenis Preferensi
-                    <select
-                      value={form.preferenceType}
-                      onChange={(e) => updateForm('preferenceType', e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    >
-                      {preferenceOptions.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Jam Mulai
-                    <input
-                      type="time"
-                      value={form.startTime}
-                      onChange={(e) => updateForm('startTime', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Jam Selesai
-                    <input
-                      type="time"
-                      value={form.endTime}
-                      onChange={(e) => updateForm('endTime', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700 sm:col-span-2">
-                    Catatan (Opsional)
-                    <textarea
-                      rows={3}
-                      value={form.notes}
-                      onChange={(e) => updateForm('notes', e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-                    type="submit"
-                  >
-                    {editingId ? 'Simpan Perubahan' : 'Tambah'}
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                </div>
-              </form>
-            )}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Hari</label>
+                <Select value={form.dayOfWeek} onChange={e => updateForm('dayOfWeek', e.target.value)}>
+                  {dayOptions.map(day => <option key={day.value} value={day.value}>{day.label}</option>)}
+                </Select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Jenis Preferensi</label>
+                <Select value={form.preferenceType} onChange={e => updateForm('preferenceType', e.target.value)}>
+                  {preferenceOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </Select>
+              </div>
+            </div>
 
-            {modal.type === 'delete' && modal.item && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Hapus Preferensi</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <p className="text-sm text-slate-600">
-                  Yakin ingin menghapus preferensi untuk <span className="font-semibold">{teacherMap.get(modal.item.teacherId)?.name || modal.item.teacher?.name || 'guru ini'}</span>?
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-200 transition hover:bg-rose-700"
-                    type="button"
-                    onClick={handleConfirmDelete}
-                  >
-                    Hapus
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Jam Mulai</label>
+                <Input type="time" value={form.startTime} onChange={e => updateForm('startTime', e.target.value)} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Jam Selesai</label>
+                <Input type="time" value={form.endTime} onChange={e => updateForm('endTime', e.target.value)} required />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Catatan (Opsional)</label>
+              <textarea
+                value={form.notes}
+                onChange={e => updateForm('notes', e.target.value)}
+                rows={3}
+                className="w-full rounded-2xl border border-neutral-200 px-4 py-3 text-sm focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <Button type="submit" variant="primary" size="lg" className="flex-1">
+                {editingId ? 'Simpan Perubahan' : 'Tambah Preferensi'}
+              </Button>
+              <Button type="button" variant="secondary" size="lg" onClick={closeModal}>
+                Batal
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {modal.type === 'detail' && modal.item && (
+          <div className="space-y-4 text-sm">
+            <div className="grid grid-cols-2 gap-4">
+              <div><span className="text-xs uppercase text-slate-500">Guru</span><p className="font-semibold">{teacherMap.get(modal.item.teacherId)?.name || '-'}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Periode</span><p className="font-semibold">{periodMap.get(modal.item.periodId)?.name || '-'}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Hari</span><p className="font-semibold">{dayOptions.find(d => d.value === modal.item.dayOfWeek)?.label}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Waktu</span><p className="font-semibold">{modal.item.startTime} - {modal.item.endTime}</p></div>
+            </div>
+            <div>
+              <span className="text-xs uppercase text-slate-500">Jenis</span>
+              <Badge variant={modal.item.preferenceType === 'prefer' ? 'success' : 'danger'}>
+                {modal.item.preferenceType === 'prefer' ? 'Preferensi' : 'Hindari'}
+              </Badge>
+            </div>
+            {modal.item.notes && (
+              <div>
+                <span className="text-xs uppercase text-slate-500">Catatan</span>
+                <p className="text-slate-700">{modal.item.notes}</p>
               </div>
             )}
           </div>
-        </div>
-      )}
-    </section>
+        )}
+
+        {modal.type === 'delete' && modal.item && (
+          <div className="space-y-6">
+            <p className="text-slate-600">
+              Yakin ingin menghapus preferensi untuk <span className="font-semibold">{teacherMap.get(modal.item.teacherId)?.name || 'guru ini'}</span>?
+            </p>
+            <div className="flex gap-3">
+              <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">Hapus</Button>
+              <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
   );
 };
 

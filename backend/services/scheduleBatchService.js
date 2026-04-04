@@ -13,7 +13,7 @@ const {
 } = require('../models');
 const { serviceError } = require('../utils/serviceError');
 const { validateScheduleGenerationData } = require('./scheduleValidationService');
-const { getTeacherContext, isGuruUser } = require('./teacherOperationalService');
+const { getTeacherContext, isGuruScopedUser } = require('./teacherOperationalService');
 const { generateScheduleItems } = require('./schedulerClient');
 const { collectBatchSummaries, createEmptyBatchSummary } = require('./scheduleBatchSummaryService');
 const {
@@ -122,8 +122,8 @@ const getNextVersionNumber = async (periodId, transaction) => {
 const listScheduleBatches = async ({ periodId, status, user } = {}) => {
   const where = {};
   if (periodId) where.periodId = ensurePeriodId(periodId);
-  const teacher = await getTeacherContext(user);
-  const normalizedStatus = ensureStatus(isGuruUser(user) ? 'approved' : status);
+  const teacher = await getTeacherContext(user, { scopedOnly: true });
+  const normalizedStatus = ensureStatus(isGuruScopedUser(user) ? 'approved' : status);
   if (normalizedStatus) where.status = normalizedStatus;
 
   const include = [
@@ -217,7 +217,7 @@ const resolveDefaultBatch = async ({ periodId, status } = {}) => {
 const listScheduleItems = async ({ periodId, rombelId, batchId, status, user } = {}) => {
   const where = {};
   const batchWhere = {};
-  const teacher = await getTeacherContext(user);
+  const teacher = await getTeacherContext(user, { scopedOnly: true });
 
   if (teacher) {
     batchWhere.status = 'approved';
@@ -350,7 +350,7 @@ const generateDraftScheduleBatch = async ({ periodId, constraints, userId }) => 
 };
 
 const getScheduleBatchDetail = async (id, { user } = {}) => {
-  const teacher = await getTeacherContext(user);
+  const teacher = await getTeacherContext(user, { scopedOnly: true });
   const include = [
     { model: AcademicPeriod, attributes: ['id', 'name', 'semester', 'isActive'] },
     { model: User, as: 'Submitter', attributes: ['id', 'username'], required: false },

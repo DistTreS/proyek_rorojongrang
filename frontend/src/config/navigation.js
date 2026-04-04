@@ -19,7 +19,7 @@ export const NAV_SECTIONS = Object.freeze({
 export const ROLE_DASHBOARD_COPY = Object.freeze({
   [ROLES.STAFF_TU]: {
     title: 'Operasional Administrasi',
-    description: 'Fokus utama Anda adalah mengelola data pengguna, tendik, siswa, periode, dan pelaporan akademik.'
+    description: 'Fokus utama Anda adalah mengelola tendik dan akun, data siswa, periode akademik, serta pelaporan akademik.'
   },
   [ROLES.WAKASEK]: {
     title: 'Koordinasi Akademik',
@@ -49,11 +49,11 @@ export const APP_NAV_ITEMS = Object.freeze([
   {
     key: 'user-access',
     path: '/user-akses',
-    label: 'User & Hak Akses',
+    label: 'Manajemen Akun',
     section: 'operational',
     roles: ADMIN_ROLES,
     pageKey: 'userAccess',
-    showInNav: true,
+    showInNav: false,
     summary: 'Kelola akun login dan role pengguna.',
   },
   {
@@ -75,15 +75,15 @@ export const APP_NAV_ITEMS = Object.freeze([
   {
     key: 'tendik',
     path: '/tendik',
-    label: 'Data Tendik',
+    label: 'Tendik & Akun',
     section: 'operational',
     roles: ADMIN_ROLES,
     pageKey: 'tendik',
     showInNav: true,
-    summary: 'Kelola data tendik dan akun internal.',
+    summary: 'Kelola data tendik, akun login, role, dan import data.',
     pageProps: {
-      pageTitle: 'Data Tendik',
-      pageDescription: 'Kelola guru dan staff tata usaha beserta akun login.'
+      pageTitle: 'Tendik & Akun',
+      pageDescription: 'Kelola guru dan staff tata usaha beserta akun login, role, dan import data.'
     }
   },
   {

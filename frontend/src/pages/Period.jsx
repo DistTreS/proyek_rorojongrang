@@ -1,5 +1,17 @@
 import { useEffect, useState } from 'react';
 import api from '../services/api';
+import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
+import Select from '../components/ui/Select';
+import Badge from '../components/ui/Badge';
+import Modal from '../components/ui/Modal';
+import Pagination from '../components/ui/Pagination';
+import {
+  buildPageParams,
+  DEFAULT_PAGE_SIZE,
+  normalizePaginatedResponse
+} from '../utils/pagination';
 
 const emptyForm = {
   name: '',
@@ -18,13 +30,28 @@ const Period = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [modal, setModal] = useState({ type: null, item: null });
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    totalItems: 0,
+    totalPages: 1
+  });
 
-  const load = async () => {
+  const load = async (nextPage = page) => {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await api.get('/period');
-      setPeriods(data);
+      const { data } = await api.get('/period', {
+        params: buildPageParams({
+          page: nextPage,
+          pageSize: DEFAULT_PAGE_SIZE
+        })
+      });
+      const normalized = normalizePaginatedResponse(data);
+      setPeriods(normalized.items || []);
+      setPagination(normalized);
+      setPage(normalized.page);
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal memuat periode');
     } finally {
@@ -33,7 +60,8 @@ const Period = () => {
   };
 
   useEffect(() => {
-    load();
+    load(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const updateForm = (field, value) => {
@@ -93,7 +121,7 @@ const Period = () => {
     setModal({ type: 'edit', item: period });
   };
 
-  const handleDelete = async (period) => {
+  const handleDelete = (period) => {
     setModal({ type: 'delete', item: period });
   };
 
@@ -122,224 +150,173 @@ const Period = () => {
   };
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-8">
+      <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-900">Periode Akademik</h1>
-          <p className="text-sm text-slate-600">Kelola periode, hanya satu periode aktif sekaligus.</p>
+          <h1 className="text-4xl font-semibold text-slate-900">Periode Akademik</h1>
+          <p className="text-slate-600 mt-1">Kelola periode, hanya satu periode aktif sekaligus</p>
         </div>
-        <button
-          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-          type="button"
-          onClick={openCreate}
-        >
+        <Button onClick={openCreate} size="lg">
           + Tambah Periode
-        </button>
+        </Button>
       </div>
 
       {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <Card className="p-4 border-red-200 bg-red-50 text-red-700">
           {error}
-        </div>
+        </Card>
       )}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Daftar Periode</h2>
-            <span className="text-xs text-slate-500">{periods.length} periode</span>
-          </div>
-          <div className="mt-5 hidden grid-cols-[1.2fr_0.8fr_0.8fr_1fr_0.8fr_0.8fr] gap-4 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
-            <div>Nama</div>
-            <div>Semester</div>
-            <div>Mulai</div>
-            <div>Selesai</div>
-            <div>Status</div>
-            <div>Aksi</div>
-          </div>
-          <div className="mt-4 grid gap-4">
-            {periods.map((period) => (
-              <div
-                key={period.id}
-                className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1.2fr_0.8fr_0.8fr_1fr_0.8fr_0.8fr] md:items-center"
-              >
+      {/* Daftar Periode */}
+      <Card className="p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-lg font-semibold">Daftar Periode</h2>
+          <span className="text-sm text-slate-500">{pagination.totalItems} periode</span>
+        </div>
+
+        <div className="space-y-4">
+          {periods.map((period) => (
+            <Card key={period.id} className="p-6 hover:shadow-md transition-shadow">
+              <div className="grid grid-cols-1 md:grid-cols-[1.2fr_0.8fr_0.8fr_1fr_0.8fr_0.8fr] gap-4 md:items-center">
                 <div className="text-sm font-semibold text-slate-900">{period.name}</div>
                 <div className="text-sm text-slate-700">{period.semester === 'genap' ? 'Genap' : 'Ganjil'}</div>
                 <div className="text-sm text-slate-700">{period.startDate}</div>
                 <div className="text-sm text-slate-700">{period.endDate}</div>
                 <div>
-                  <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${period.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                  <Badge variant={period.isActive ? 'success' : 'default'}>
                     {period.isActive ? 'Aktif' : 'Nonaktif'}
-                  </span>
+                  </Badge>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={() => openDetail(period)}
-                  >
+                <div className="flex gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => openDetail(period)}>
                     Detail
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={() => handleEdit(period)}
-                  >
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => handleEdit(period)}>
                     Edit
-                  </button>
-                  <button
-                    className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
-                    type="button"
-                    onClick={() => handleDelete(period)}
-                  >
+                  </Button>
+                  <Button variant="danger" size="sm" onClick={() => handleDelete(period)}>
                     Hapus
-                  </button>
+                  </Button>
                 </div>
               </div>
-            ))}
-            {!periods.length && !loading && (
-              <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-                Belum ada data.
-              </div>
-            )}
-          </div>
-      </div>
+            </Card>
+          ))}
 
-      {modal.type && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-slate-900/40" onClick={closeModal} />
-          <div className="relative w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
-            {modal.type === 'detail' && modal.item && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Detail Periode</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
-                  <div><span className="text-xs uppercase text-slate-500">Nama</span><div className="font-semibold">{modal.item.name}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Status</span><div className="font-semibold">{modal.item.isActive ? 'Aktif' : 'Nonaktif'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Semester</span><div className="font-semibold">{modal.item.semester === 'genap' ? 'Genap' : 'Ganjil'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Mulai</span><div className="font-semibold">{modal.item.startDate}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Selesai</span><div className="font-semibold">{modal.item.endDate}</div></div>
-                </div>
-              </div>
-            )}
-
-            {(modal.type === 'create' || modal.type === 'edit') && (
-              <form className="space-y-4" onSubmit={handleSubmit}>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">
-                    {modal.type === 'edit' ? 'Edit Periode' : 'Tambah Periode'}
-                  </h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" type="button" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="text-sm font-medium text-slate-700 sm:col-span-2">
-                    Nama Periode
-                    <input
-                      value={form.name}
-                      onChange={(e) => updateForm('name', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Tanggal Mulai
-                    <input
-                      type="date"
-                      value={form.startDate}
-                      onChange={(e) => updateForm('startDate', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Tanggal Akhir
-                    <input
-                      type="date"
-                      value={form.endDate}
-                      onChange={(e) => updateForm('endDate', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Semester
-                    <select
-                      value={form.semester}
-                      onChange={(e) => updateForm('semester', e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    >
-                      <option value="ganjil">Ganjil</option>
-                      <option value="genap">Genap</option>
-                    </select>
-                  </label>
-                </div>
-
-                <div className="flex items-center gap-3 text-sm text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={form.isActive}
-                    onChange={(e) => updateForm('isActive', e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
-                  />
-                  <span>Jadikan Aktif</span>
-                </div>
-
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-                    type="submit"
-                  >
-                    {editingId ? 'Simpan Perubahan' : 'Tambah'}
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {modal.type === 'delete' && modal.item && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Hapus Periode</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <p className="text-sm text-slate-600">
-                  Yakin ingin menghapus <span className="font-semibold">{modal.item.name}</span>?
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-200 transition hover:bg-rose-700"
-                    type="button"
-                    onClick={handleConfirmDelete}
-                  >
-                    Hapus
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+          {!periods.length && !loading && (
+            <div className="text-center py-12 text-slate-500">
+              Belum ada data periode.
+            </div>
+          )}
         </div>
-      )}
-    </section>
+
+        {/* Pagination */}
+        <div className="mt-8 flex justify-center">
+          <Pagination
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            totalItems={pagination.totalItems}
+            pageSize={pagination.pageSize}
+            onPageChange={load}
+          />
+        </div>
+      </Card>
+
+      {/* Modal */}
+      <Modal
+        isOpen={!!modal.type}
+        onClose={closeModal}
+        title={
+          modal.type === 'create' ? 'Tambah Periode' :
+          modal.type === 'edit' ? 'Edit Periode' :
+          modal.type === 'detail' ? 'Detail Periode' : 'Hapus Periode'
+        }
+      >
+        {(modal.type === 'create' || modal.type === 'edit') && (
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Nama Periode</label>
+              <Input
+                value={form.name}
+                onChange={(e) => updateForm('name', e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Tanggal Mulai</label>
+                <Input
+                  type="date"
+                  value={form.startDate}
+                  onChange={(e) => updateForm('startDate', e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Tanggal Akhir</label>
+                <Input
+                  type="date"
+                  value={form.endDate}
+                  onChange={(e) => updateForm('endDate', e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Semester</label>
+              <Select value={form.semester} onChange={(e) => updateForm('semester', e.target.value)}>
+                <option value="ganjil">Ganjil</option>
+                <option value="genap">Genap</option>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={form.isActive}
+                onChange={(e) => updateForm('isActive', e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
+              />
+              <span className="text-sm text-slate-700">Jadikan periode aktif</span>
+            </div>
+
+            <div className="flex gap-3">
+              <Button type="submit" variant="primary" size="lg" className="flex-1">
+                {editingId ? 'Simpan Perubahan' : 'Tambah Periode'}
+              </Button>
+              <Button type="button" variant="secondary" size="lg" onClick={closeModal}>
+                Batal
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {modal.type === 'detail' && modal.item && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div><span className="text-xs uppercase text-slate-500">Nama</span><p className="font-semibold">{modal.item.name}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Status</span><p className="font-semibold">{modal.item.isActive ? 'Aktif' : 'Nonaktif'}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Semester</span><p className="font-semibold">{modal.item.semester === 'genap' ? 'Genap' : 'Ganjil'}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Mulai</span><p className="font-semibold">{modal.item.startDate}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Selesai</span><p className="font-semibold">{modal.item.endDate}</p></div>
+            </div>
+          </div>
+        )}
+
+        {modal.type === 'delete' && modal.item && (
+          <div className="space-y-6">
+            <p className="text-slate-600">
+              Yakin ingin menghapus periode <span className="font-semibold">{modal.item.name}</span>?
+            </p>
+            <div className="flex gap-3">
+              <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">Hapus</Button>
+              <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
   );
 };
 

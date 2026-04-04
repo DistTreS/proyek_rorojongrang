@@ -1,102 +1,121 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../services/api';
 import { useAuth } from '../context/useAuth';
+import api from '../services/api';
+import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
+import { motion } from 'framer-motion';
 
 const Login = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
+
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
+    setLoading(true);
+
     try {
       const { data } = await api.post('/auth/login', { identifier, password });
       login(data);
       navigate('/', { replace: true });
     } catch (err) {
       setError(err.response?.data?.message || 'Login gagal');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50 to-amber-50">
-      <div className="mx-auto flex min-h-screen w-full max-w-5xl items-center px-6 py-10">
-        <div className="grid w-full gap-10 lg:grid-cols-[1.1fr_0.9fr]">
-          <section className="hidden flex-col justify-center gap-6 rounded-3xl border border-white/60 bg-white/70 p-10 shadow-[0_24px_80px_rgba(15,23,42,0.15)] backdrop-blur lg:flex">
-            <div className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-100/80 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">
-              Sistem Informasi Akademik
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-slate-50 flex items-center justify-center p-4">
+      <div className="grid w-full max-w-6xl gap-8 lg:grid-cols-2 lg:gap-16 items-center">
+        
+        {/* Form Section - Kiri */}
+        <motion.div
+          initial={{ opacity: 0, x: -30 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="lg:order-1"
+        >
+          <Card className="max-w-md mx-auto p-8 lg:p-10">
+            <div className="text-center mb-8">
+              <h1 className="text-4xl font-semibold text-slate-900">
+                Welcome Back 👋
+              </h1>
+              <p className="text-slate-600 mt-3 text-lg">
+                Hari ini adalah hari baru.<br />
+                Ini hari kamu. Kamu yang membentuknya.
+              </p>
             </div>
-            <h1 className="text-4xl font-semibold leading-tight text-slate-900">
-              SMA 1 Hiliran Gumanti
-            </h1>
-            <p className="max-w-md text-sm leading-relaxed text-slate-600">
-              Kelola data akademik, jadwal, presensi, dan catatan siswa dalam satu platform
-              yang modern dan mudah digunakan.
-            </p>
-            <div className="grid gap-4 text-sm text-slate-700">
-              <div className="flex items-center gap-3">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                Penjadwalan otomatis berbasis CP-SAT + GA
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                Presensi & laporan terintegrasi
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                Multi-role: guru, staff TU, wakasek, kepala sekolah
-              </div>
-            </div>
-          </section>
 
-          <section className="rounded-3xl border border-white/70 bg-white/80 p-8 shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur">
-            <div className="mb-6 space-y-2">
-              <h2 className="text-2xl font-semibold text-slate-900">Masuk ke Sistem</h2>
-              <p className="text-sm text-slate-600">Gunakan akun yang sudah terdaftar.</p>
-            </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <label className="block text-sm font-medium text-slate-700">
-                Username / Email
-                <input
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Email / Username</label>
+                <Input
+                  type="text"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  autoComplete="username"
                   placeholder="nama@sekolah.sch.id"
-                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+                  required
                 />
-              </label>
-              <label className="block text-sm font-medium text-slate-700">
-                Password
-                <input
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Password</label>
+                <Input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
                   placeholder="Masukkan password"
-                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+                  required
                 />
-              </label>
+              </div>
+
               {error && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <div className="rounded-2xl bg-rose-50 border border-rose-200 px-4 py-3 text-sm text-rose-700">
                   {error}
                 </div>
               )}
-              <button
-                className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
+
+              <Button
                 type="submit"
+                variant="primary"
+                size="lg"
+                className="w-full text-base py-3.5"
+                disabled={loading}
               >
-                Masuk
-              </button>
+                {loading ? 'Sedang masuk...' : 'Masuk'}
+              </Button>
             </form>
-            <div className="mt-6 text-center text-xs text-slate-500">
-              Sistem akan mencatat aktivitas masuk untuk keamanan.
+
+            <div className="text-center text-xs text-slate-500 mt-8">
+              © 2025 SMA 1 Hiliran Gumanti - All Rights Reserved
             </div>
-          </section>
-        </div>
+          </Card>
+        </motion.div>
+
+        {/* Gambar Besar - Kanan */}
+        <motion.div
+          initial={{ opacity: 0, x: 30 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="hidden lg:block relative"
+        >
+          <img
+            src="/images/login-hero.jpeg"
+            alt="SMA 1 Hiliran Gumanti"
+            className="w-full h-full object-cover rounded-3xl shadow-2xl aspect-[4/3]"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent rounded-3xl" />
+          <div className="absolute bottom-8 left-8 text-white">
+            <p className="text-sm font-medium opacity-90">Sistem Informasi Akademik</p>
+            <p className="text-3xl font-semibold">SMA 1 Hiliran Gumanti</p>
+          </div>
+        </motion.div>
       </div>
     </div>
   );

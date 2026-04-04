@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const { StudentNote, Student, User } = require('../models');
 const { ensureStudentAccessible, getAccessibleStudentIds } = require('./teacherOperationalService');
+const { paginateItems, parsePagination } = require('../utils/pagination');
 const { serviceError } = require('../utils/serviceError');
 
 const noteInclude = [
@@ -34,7 +35,14 @@ const buildScopedStudentWhere = async (user, studentId) => {
   return { [Op.in]: accessibleStudentIds };
 };
 
-const listStudentNotes = async ({ user, studentId, category }) => {
+const listStudentNotes = async (query = {}) => {
+  const pagination = parsePagination(query);
+  const {
+    user,
+    studentId,
+    category,
+    search
+  } = query;
   const where = {};
   if (category) where.category = category;
 
@@ -52,7 +60,17 @@ const listStudentNotes = async ({ user, studentId, category }) => {
     order: [['date', 'DESC']]
   });
 
-  return notes.map(formatNote);
+  const keyword = search ? String(search).trim().toLowerCase() : '';
+  const formatted = notes.map(formatNote);
+  const filtered = keyword
+    ? formatted.filter((item) => (
+      item.note?.toLowerCase().includes(keyword)
+      || item.student?.name?.toLowerCase().includes(keyword)
+      || item.student?.nis?.toLowerCase().includes(keyword)
+    ))
+    : formatted;
+
+  return paginateItems(filtered, pagination);
 };
 
 const createStudentNote = async ({ user, payload }) => {

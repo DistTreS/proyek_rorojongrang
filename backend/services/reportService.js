@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const { Attendance, Student, Rombel, TimeSlot } = require('../models');
-const { getTeacherContext, isGuruUser } = require('./teacherOperationalService');
+const { getTeacherContext, isGuruScopedUser } = require('./teacherOperationalService');
+const { paginateItems, parsePagination } = require('../utils/pagination');
 const { serviceError } = require('../utils/serviceError');
 
 const ensureDateRange = ({ dateFrom, dateTo }) => {
@@ -16,8 +17,8 @@ const buildReportScopeWhere = async (user, dateFrom, dateTo) => {
     date: { [Op.between]: [dateFrom, dateTo] }
   };
 
-  if (isGuruUser(user)) {
-    const teacher = await getTeacherContext(user);
+  if (isGuruScopedUser(user)) {
+    const teacher = await getTeacherContext(user, { scopedOnly: true });
     where[Op.or] = teacher
       ? [
         { teacherId: teacher.id },
@@ -44,6 +45,8 @@ const fetchAttendanceRows = async (where) => {
   });
 };
 
+const paginateReportRows = (rows, query) => paginateItems(rows, parsePagination(query));
+
 const getGlobalReport = async ({ user, dateFrom, dateTo }) => {
   const range = ensureDateRange({ dateFrom, dateTo });
   const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
@@ -57,7 +60,8 @@ const getGlobalReport = async ({ user, dateFrom, dateTo }) => {
   return { summary, totalRecords: rows.length };
 };
 
-const getReportByStudent = async ({ user, dateFrom, dateTo }) => {
+const getReportByStudent = async (query) => {
+  const { user, dateFrom, dateTo } = query;
   const range = ensureDateRange({ dateFrom, dateTo });
   const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
 
@@ -78,10 +82,11 @@ const getReportByStudent = async ({ user, dateFrom, dateTo }) => {
     return acc;
   }, {});
 
-  return Object.values(grouped);
+  return paginateReportRows(Object.values(grouped), query);
 };
 
-const getReportByRombel = async ({ user, dateFrom, dateTo }) => {
+const getReportByRombel = async (query) => {
+  const { user, dateFrom, dateTo } = query;
   const range = ensureDateRange({ dateFrom, dateTo });
   const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
 
@@ -102,10 +107,11 @@ const getReportByRombel = async ({ user, dateFrom, dateTo }) => {
     return acc;
   }, {});
 
-  return Object.values(grouped);
+  return paginateReportRows(Object.values(grouped), query);
 };
 
-const getReportByTimeSlot = async ({ user, dateFrom, dateTo }) => {
+const getReportByTimeSlot = async (query) => {
+  const { user, dateFrom, dateTo } = query;
   const range = ensureDateRange({ dateFrom, dateTo });
   const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
 
@@ -126,10 +132,11 @@ const getReportByTimeSlot = async ({ user, dateFrom, dateTo }) => {
     return acc;
   }, {});
 
-  return Object.values(grouped);
+  return paginateReportRows(Object.values(grouped), query);
 };
 
-const getDailyReport = async ({ user, dateFrom, dateTo }) => {
+const getDailyReport = async (query) => {
+  const { user, dateFrom, dateTo } = query;
   const range = ensureDateRange({ dateFrom, dateTo });
   const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
 
@@ -143,10 +150,11 @@ const getDailyReport = async ({ user, dateFrom, dateTo }) => {
     return acc;
   }, {});
 
-  return Object.values(grouped);
+  return paginateReportRows(Object.values(grouped), query);
 };
 
-const getMonthlyReport = async ({ user, dateFrom, dateTo }) => {
+const getMonthlyReport = async (query) => {
+  const { user, dateFrom, dateTo } = query;
   const range = ensureDateRange({ dateFrom, dateTo });
   const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
 
@@ -160,10 +168,11 @@ const getMonthlyReport = async ({ user, dateFrom, dateTo }) => {
     return acc;
   }, {});
 
-  return Object.values(grouped);
+  return paginateReportRows(Object.values(grouped), query);
 };
 
-const getSemesterReport = async ({ user, dateFrom, dateTo }) => {
+const getSemesterReport = async (query) => {
+  const { user, dateFrom, dateTo } = query;
   const range = ensureDateRange({ dateFrom, dateTo });
   const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
 
@@ -191,7 +200,7 @@ const getSemesterReport = async ({ user, dateFrom, dateTo }) => {
     return acc;
   }, {});
 
-  return Object.values(grouped);
+  return paginateReportRows(Object.values(grouped), query);
 };
 
 const getReportByDateRange = async ({ user, dateFrom, dateTo }) => {

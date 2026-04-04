@@ -26,7 +26,12 @@ const me = async (req, res) => {
 
 const updateMe = async (req, res) => {
   try {
-    const data = await updateMyProfile(req.user.id, req.body);
+    const payload = { ...req.body };
+    if (req.file?.filename) {
+      payload.avatarUrl = `/uploads/avatars/${req.file.filename}`;
+    }
+
+    const data = await updateMyProfile(req.user.id, payload);
     return res.json(data);
   } catch (err) {
     return handleError(res, err, 'Gagal memperbarui profil');
@@ -35,7 +40,7 @@ const updateMe = async (req, res) => {
 
 const list = async (req, res) => {
   try {
-    const data = await listAdminUsers({ search: req.query.search });
+    const data = await listAdminUsers(req.query);
     return res.json(data);
   } catch (err) {
     return handleError(res, err, 'Gagal memuat data user');

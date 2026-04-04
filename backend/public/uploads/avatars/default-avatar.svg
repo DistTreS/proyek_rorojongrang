@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-labelledby="title desc">
+  <title id="title">Default Avatar</title>
+  <desc id="desc">Fallback profile avatar</desc>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#D1FAE5" />
+      <stop offset="100%" stop-color="#A7F3D0" />
+    </linearGradient>
+  </defs>
+  <rect width="240" height="240" rx="48" fill="url(#bg)" />
+  <circle cx="120" cy="92" r="44" fill="#047857" opacity="0.9" />
+  <path d="M48 214c6-43 35-68 72-68s66 25 72 68" fill="#047857" opacity="0.9" />
+</svg>

@@ -17,7 +17,7 @@ const handleError = (res, err, fallbackMessage) => {
 
 const list = async (req, res) => {
   try {
-    const data = await listStudents({ search: req.query.search, user: req.user });
+    const data = await listStudents({ ...req.query, user: req.user });
     return res.json(data);
   } catch (err) {
     return handleError(res, err, 'Gagal memuat data siswa');

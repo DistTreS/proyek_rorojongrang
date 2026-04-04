@@ -1,5 +1,6 @@
 const { Op } = require('sequelize');
 const { TimeSlot, AcademicPeriod, Schedule, Attendance } = require('../models');
+const { paginateItems, parsePagination } = require('../utils/pagination');
 const { serviceError } = require('../utils/serviceError');
 const {
   buildTimeOverlapWhere,
@@ -58,7 +59,9 @@ const validateTimeSlotInput = async ({ periodId, dayOfWeek, startTime, endTime, 
   };
 };
 
-const listTimeSlots = async ({ periodId } = {}) => {
+const listTimeSlots = async (query = {}) => {
+  const pagination = parsePagination(query);
+  const { periodId } = query;
   const where = {};
   if (periodId) {
     where.periodId = Number(periodId);
@@ -70,7 +73,7 @@ const listTimeSlots = async ({ periodId } = {}) => {
     order: [['periodId', 'DESC'], ['dayOfWeek', 'ASC'], ['startTime', 'ASC']]
   });
 
-  return slots.map(formatTimeSlot);
+  return paginateItems(slots.map(formatTimeSlot), pagination);
 };
 
 const getTimeSlotDetail = async (id) => {

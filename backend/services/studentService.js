@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const XLSX = require('xlsx');
 const { sequelize, Student, Rombel } = require('../models');
+const { paginateItems, parsePagination } = require('../utils/pagination');
 const { serviceError } = require('../utils/serviceError');
 const { getAccessibleStudentIds } = require('./teacherOperationalService');
 
@@ -95,7 +96,9 @@ const ensureValidRombels = async (rombelIds) => {
   return rombels;
 };
 
-const listStudents = async ({ search, user } = {}) => {
+const listStudents = async (query = {}) => {
+  const pagination = parsePagination(query);
+  const { search, user } = query;
   const where = {};
   if (search) {
     where[Op.or] = [
@@ -107,7 +110,7 @@ const listStudents = async ({ search, user } = {}) => {
   const accessibleStudentIds = await getAccessibleStudentIds(user);
   if (accessibleStudentIds !== null) {
     if (!accessibleStudentIds.length) {
-      return [];
+      return paginateItems([], pagination);
     }
     where.id = { [Op.in]: accessibleStudentIds };
   }
@@ -118,7 +121,7 @@ const listStudents = async ({ search, user } = {}) => {
     order: [['name', 'ASC']]
   });
 
-  return students.map(formatStudent);
+  return paginateItems(students.map(formatStudent), pagination);
 };
 
 const getStudentDetail = async (id, { user } = {}) => {

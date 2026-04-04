@@ -15,7 +15,7 @@ const handleError = (res, err, fallbackMessage) => {
 
 const list = async (req, res) => {
   try {
-    const data = await listAcademicPeriods();
+    const data = await listAcademicPeriods(req.query);
     return res.json(data);
   } catch (err) {
     return handleError(res, err, 'Gagal memuat periode');

@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
+import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
+import Select from '../components/ui/Select';
+import Badge from '../components/ui/Badge';
+import Modal from '../components/ui/Modal';
+import Pagination from '../components/ui/Pagination';
+import {
+  buildPageParams,
+  DEFAULT_PAGE_SIZE,
+  normalizePaginatedResponse
+} from '../utils/pagination';
 
 const statusOptions = [
   { value: 'hadir', label: 'Hadir' },
@@ -40,22 +52,39 @@ const Presensi = () => {
   const [detail, setDetail] = useState(null);
   const [saving, setSaving] = useState(false);
   const [uploadingId, setUploadingId] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    totalItems: 0,
+    totalPages: 1
+  });
+
   const assetBase = (import.meta.env.VITE_API_URL || '').replace(/\/api$/, '');
+
   const buildFileUrl = (url) => {
     if (!url) return '';
     if (url.startsWith('/uploads')) return `${assetBase}${url}`;
     return url;
   };
 
-  const load = async () => {
+  const load = async (nextPage = page) => {
     setLoading(true);
     setError(null);
     try {
       const [meetingRes, scheduleRes] = await Promise.all([
-        api.get('/attendance/meetings'),
+        api.get('/attendance/meetings', {
+          params: buildPageParams({
+            page: nextPage,
+            pageSize: DEFAULT_PAGE_SIZE
+          })
+        }),
         api.get('/schedule')
       ]);
-      setMeetings(meetingRes.data || []);
+      const normalized = normalizePaginatedResponse(meetingRes.data);
+      setMeetings(normalized.items || []);
+      setPagination(normalized);
+      setPage(normalized.page);
       setTeachingSchedule(scheduleRes.data || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal memuat presensi');
@@ -65,7 +94,8 @@ const Presensi = () => {
   };
 
   useEffect(() => {
-    load();
+    load(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const updateMeetingForm = (field, value) => {
@@ -79,7 +109,7 @@ const Presensi = () => {
 
   const openCreate = () => {
     resetMeetingForm();
-    setModal({ type: 'create', item: null });
+    setModal({ type: 'create' });
   };
 
   const openDetail = async (meeting) => {
@@ -94,7 +124,7 @@ const Presensi = () => {
   };
 
   const closeModal = () => {
-    setModal({ type: null, item: null });
+    setModal({ type: null });
     setDetail(null);
   };
 
@@ -103,7 +133,9 @@ const Presensi = () => {
       const exists = prev.timeSlotIds.includes(slotId);
       return {
         ...prev,
-        timeSlotIds: exists ? prev.timeSlotIds.filter((id) => id !== slotId) : [...prev.timeSlotIds, slotId]
+        timeSlotIds: exists
+          ? prev.timeSlotIds.filter((id) => id !== slotId)
+          : [...prev.timeSlotIds, slotId]
       };
     });
   };
@@ -142,6 +174,7 @@ const Presensi = () => {
     try {
       await api.delete(`/attendance/meetings/${meeting.meetingId}`);
       load();
+      closeModal();
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal menghapus pertemuan');
     }
@@ -155,8 +188,8 @@ const Presensi = () => {
       const entries = detail.students.map((student) => ({
         studentId: student.id,
         status: student.status,
-        note: student.note,
-        attachmentUrl: student.attachmentUrl
+        note: student.note || null,
+        attachmentUrl: student.attachmentUrl || null
       }));
       await api.put(`/attendance/meetings/${detail.meetingId}/entries`, { entries });
       await load();
@@ -170,9 +203,9 @@ const Presensi = () => {
   const updateStudentField = (studentId, field, value) => {
     setDetail((prev) => {
       if (!prev) return prev;
-      const students = prev.students.map((student) => (
+      const students = prev.students.map((student) =>
         student.id === studentId ? { ...student, [field]: value } : student
-      ));
+      );
       return { ...prev, students };
     });
   };
@@ -196,8 +229,8 @@ const Presensi = () => {
     }
   };
 
-  const teachingAssignments = useMemo(() => (
-    [...new Map(
+  const teachingAssignments = useMemo(() => {
+    return [...new Map(
       teachingSchedule
         .filter((item) => item.teachingAssignment?.id)
         .map((item) => [
@@ -207,359 +240,244 @@ const Presensi = () => {
             periodName: item.batch?.periodName || item.teachingAssignment?.period?.name || '-'
           }
         ])
-    ).values()]
-  ), [teachingSchedule]);
-  const assignmentMap = useMemo(
-    () => new Map(teachingAssignments.map((item) => [item.id, item])),
-    [teachingAssignments]
-  );
-  const selectedAssignment = useMemo(
-    () => assignmentMap.get(Number(meetingForm.teachingAssignmentId)) || null,
-    [assignmentMap, meetingForm.teachingAssignmentId]
-  );
+    ).values()];
+  }, [teachingSchedule]);
+
+  const assignmentMap = useMemo(() => new Map(teachingAssignments.map((item) => [item.id, item])), [teachingAssignments]);
+
+  const selectedAssignment = useMemo(() => assignmentMap.get(Number(meetingForm.teachingAssignmentId)) || null, [assignmentMap, meetingForm.teachingAssignmentId]);
+
   const selectedDay = useMemo(() => {
     if (!meetingForm.date) return null;
     const date = new Date(`${meetingForm.date}T00:00:00`);
-    const day = date.getDay(); // 0=Sunday ... 6=Saturday
+    const day = date.getDay();
     if (day === 0) return null;
-    return day; // 1..6
+    return day;
   }, [meetingForm.date]);
-  const activeDayFilter = selectedDay;
+
   const currentSlots = useMemo(() => {
-    if (!selectedAssignment) return [];
-    if (!activeDayFilter) return [];
+    if (!selectedAssignment || !selectedDay) return [];
     return [...new Map(
       teachingSchedule
-        .filter((item) => (
-          item.teachingAssignment?.id === selectedAssignment.id
-          && item.timeSlot?.dayOfWeek === activeDayFilter
-        ))
+        .filter((item) =>
+          item.teachingAssignment?.id === selectedAssignment.id &&
+          item.timeSlot?.dayOfWeek === selectedDay
+        )
         .map((item) => [item.timeSlot.id, item.timeSlot])
     ).values()];
-  }, [teachingSchedule, selectedAssignment, activeDayFilter]);
+  }, [teachingSchedule, selectedAssignment, selectedDay]);
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-8">
+      <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-900">Presensi</h1>
-          <p className="text-sm text-slate-600">Buat pertemuan dan kelola kehadiran siswa berdasarkan jadwal mengajar resmi.</p>
+          <h1 className="text-4xl font-semibold text-slate-900">Presensi</h1>
+          <p className="text-slate-600 mt-1">Buat pertemuan dan kelola kehadiran siswa berdasarkan jadwal mengajar resmi</p>
         </div>
-        <button
-          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700 disabled:opacity-60"
-          type="button"
-          onClick={openCreate}
-          disabled={!teachingAssignments.length}
-        >
+        <Button onClick={openCreate} size="lg" disabled={!teachingAssignments.length}>
           + Buat Pertemuan
-        </button>
+        </Button>
       </div>
 
       {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <Card className="p-4 border-red-200 bg-red-50 text-red-700">
           {error}
-        </div>
-      )}
-      {!loading && !teachingAssignments.length && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Anda belum memiliki jadwal mengajar approved. Presensi baru bisa dibuat setelah jadwal resmi tersedia.
-        </div>
+        </Card>
       )}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Daftar Pertemuan</h2>
-          <span className="text-xs text-slate-500">{meetings.length} pertemuan</span>
+      {!loading && !teachingAssignments.length && (
+        <Card className="p-4 border-amber-200 bg-amber-50 text-amber-800">
+          Anda belum memiliki jadwal mengajar approved. Presensi baru bisa dibuat setelah jadwal resmi tersedia.
+        </Card>
+      )}
+
+      {/* Daftar Pertemuan */}
+      <Card className="p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-lg font-semibold">Daftar Pertemuan</h2>
+          <span className="text-sm text-slate-500">{pagination.totalItems} pertemuan</span>
         </div>
-        <div className="mt-5 hidden grid-cols-[0.9fr_1.2fr_1.4fr_1.2fr_0.9fr_0.8fr] gap-4 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
-          <div>Tanggal</div>
-          <div>Rombel</div>
-          <div>Mapel</div>
-          <div>Jam</div>
-          <div>Ringkas</div>
-          <div>Aksi</div>
-        </div>
-        <div className="mt-4 grid gap-4">
+
+        <div className="space-y-4">
           {meetings.map((meeting) => (
-            <div
-              key={meeting.meetingId}
-              className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[0.9fr_1.2fr_1.4fr_1.2fr_0.9fr_0.8fr] md:items-center"
-            >
-              <div className="text-sm text-slate-700">{meeting.date}</div>
-              <div className="text-sm font-semibold text-slate-900">{formatRombelLabel(meeting.rombel)}</div>
-              <div className="text-sm text-slate-700">
-                {meeting.subject?.name || '-'}{' '}
-                <span className="text-xs text-slate-500">• {meeting.subject?.type === 'peminatan' ? 'Peminatan' : 'Wajib'}</span>
+            <Card key={meeting.meetingId} className="p-6 hover:shadow-md transition-shadow">
+              <div className="grid grid-cols-1 md:grid-cols-[0.9fr_1.2fr_1.4fr_1.2fr_0.9fr_0.8fr] gap-4 md:items-center">
+                <div className="text-sm text-slate-700">{meeting.date}</div>
+                <div className="text-sm font-semibold text-slate-900">{formatRombelLabel(meeting.rombel)}</div>
+                <div className="text-sm text-slate-700">
+                  {meeting.subject?.name || '-'}
+                  <span className="text-xs ml-2 text-slate-500">
+                    • {meeting.subject?.type === 'peminatan' ? 'Peminatan' : 'Wajib'}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-600">
+                  {meeting.timeSlots?.map((slot) => (
+                    <div key={slot.id}>
+                      {dayOptions.find((d) => d.value === slot.dayOfWeek)?.label} {slot.startTime}-{slot.endTime}
+                    </div>
+                  ))}
+                </div>
+                <div className="text-xs text-slate-600">
+                  H:{meeting.statusSummary?.hadir || 0} I:{meeting.statusSummary?.izin || 0} S:{meeting.statusSummary?.sakit || 0} A:{meeting.statusSummary?.alpa || 0}
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => openDetail(meeting)}>
+                    Detail
+                  </Button>
+                  <Button variant="danger" size="sm" onClick={() => handleDeleteMeeting(meeting)}>
+                    Hapus
+                  </Button>
+                </div>
               </div>
-              <div className="text-xs text-slate-600">
-                {meeting.timeSlots?.map((slot) => (
-                  <div key={slot.id}>
-                    {dayOptions.find((day) => day.value === slot.dayOfWeek)?.label} {slot.startTime}-{slot.endTime}
-                  </div>
-                ))}
-              </div>
-              <div className="text-xs text-slate-600">
-                H:{meeting.statusSummary.hadir} I:{meeting.statusSummary.izin} S:{meeting.statusSummary.sakit} A:{meeting.statusSummary.alpa}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                  type="button"
-                  onClick={() => openDetail(meeting)}
-                >
-                  Detail
-                </button>
-                <button
-                  className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
-                  type="button"
-                  onClick={() => handleDeleteMeeting(meeting)}
-                >
-                  Hapus
-                </button>
-              </div>
-            </div>
+            </Card>
           ))}
+
           {!meetings.length && !loading && (
-            <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-              Belum ada data.
+            <div className="text-center py-12 text-slate-500">
+              Belum ada pertemuan.
             </div>
           )}
         </div>
-      </div>
 
-      {modal.type && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-slate-900/40" onClick={closeModal} />
-          <div className="relative w-full max-w-5xl rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
-            {modal.type === 'create' && (
-              <form className="space-y-4" onSubmit={handleCreateMeeting}>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Buat Pertemuan</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" type="button" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="text-sm font-medium text-slate-700">
-                    Tanggal
-                    <input
-                      type="date"
-                      value={meetingForm.date}
-                      onChange={(e) => {
-                        updateMeetingForm('date', e.target.value);
-                        updateMeetingForm('timeSlotIds', []);
-                      }}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Jadwal Mengajar
-                    <select
-                      value={meetingForm.teachingAssignmentId}
-                      onChange={(e) => {
-                        updateMeetingForm('teachingAssignmentId', e.target.value);
-                        updateMeetingForm('timeSlotIds', []);
-                      }}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    >
-                      <option value="">Pilih pengampu yang diajar</option>
-                      {teachingAssignments.map((assignment) => (
-                        <option key={assignment.id} value={assignment.id}>
-                          {assignment.rombel?.name || '-'} • {assignment.subject?.name || '-'} • {assignment.periodName}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {selectedAssignment && (
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 sm:col-span-2">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Ringkasan Pengampu
-                      </div>
-                      <div className="mt-2 grid gap-3 sm:grid-cols-3">
-                        <div>
-                          <div className="text-xs uppercase text-slate-500">Rombel</div>
-                          <div className="font-semibold">{formatRombelLabel(selectedAssignment.rombel)}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs uppercase text-slate-500">Mapel</div>
-                          <div className="font-semibold">{selectedAssignment.subject?.name || '-'}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs uppercase text-slate-500">Periode</div>
-                          <div className="font-semibold">{selectedAssignment.periodName}</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  <label className="text-sm font-medium text-slate-700 sm:col-span-2">
-                    Catatan Guru (opsional)
-                    <input
-                      value={meetingForm.meetingNote}
-                      onChange={(e) => updateMeetingForm('meetingNote', e.target.value)}
-                      placeholder="Misal: guru berhalangan hadir, diabsen oleh guru piket."
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Jam Pelajaran (boleh lebih dari satu)
-                  </div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {currentSlots.map((slot) => (
-                      <label key={slot.id} className="flex items-center gap-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={meetingForm.timeSlotIds.includes(slot.id)}
-                          onChange={() => toggleSlot(slot.id)}
-                          className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
-                        />
-                        <span>
-                          {dayOptions.find((day) => day.value === slot.dayOfWeek)?.label} • {slot.startTime}-{slot.endTime}
-                        </span>
-                      </label>
-                    ))}
-                    {!currentSlots.length && (
-                      <div className="text-sm text-slate-500">
-                        {!meetingForm.teachingAssignmentId
-                          ? 'Pilih jadwal mengajar terlebih dahulu.'
-                          : meetingForm.date
-                            ? 'Tidak ada slot resmi pada hari tersebut untuk pengampu ini.'
-                            : 'Pilih tanggal untuk menampilkan slot resmi.'}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700 disabled:opacity-70"
-                    type="submit"
-                    disabled={saving}
-                  >
-                    {saving ? 'Menyimpan...' : 'Buat Pertemuan'}
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {modal.type === 'detail' && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Detail Presensi</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                {!detail && <div className="text-sm text-slate-500">Memuat data...</div>}
-                {detail && (
-                  <>
-                    <div className="grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
-                      <div><span className="text-xs uppercase text-slate-500">Tanggal</span><div className="font-semibold">{detail.date}</div></div>
-                      <div><span className="text-xs uppercase text-slate-500">Rombel</span><div className="font-semibold">{formatRombelLabel(detail.rombel)}</div></div>
-                      <div><span className="text-xs uppercase text-slate-500">Mapel</span><div className="font-semibold">{detail.subject?.name}</div></div>
-                      <div><span className="text-xs uppercase text-slate-500">Guru</span><div className="font-semibold">{detail.teacher?.name || '-'}</div></div>
-                      <div><span className="text-xs uppercase text-slate-500">Guru Pengganti</span><div className="font-semibold">{detail.substituteTeacher?.name || '-'}</div></div>
-                      <div className="sm:col-span-2"><span className="text-xs uppercase text-slate-500">Catatan</span><div className="font-semibold">{detail.meetingNote || '-'}</div></div>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Jam Pelajaran</div>
-                      <div className="mt-2 text-sm text-slate-700">
-                        {detail.timeSlots.map((slot) => (
-                          <div key={slot.id}>
-                            {dayOptions.find((day) => day.value === slot.dayOfWeek)?.label} • {slot.startTime}-{slot.endTime}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-white">
-                      <div className="border-b border-slate-100 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Daftar Siswa (default hadir)
-                      </div>
-                      <div className="max-h-[420px] overflow-auto">
-                        {detail.students.map((student) => (
-                          <div key={student.id} className="grid gap-3 border-b border-slate-100 px-4 py-3 sm:grid-cols-[1.4fr_0.9fr_1.2fr_1fr] sm:items-center">
-                            <div>
-                              <div className="text-sm font-semibold text-slate-900">{student.name}</div>
-                              <div className="text-xs text-slate-500">{student.nis || '-'}</div>
-                            </div>
-                            <select
-                              value={student.status}
-                              onChange={(e) => updateStudentField(student.id, 'status', e.target.value)}
-                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                            >
-                              {statusOptions.map((status) => (
-                                <option key={status.value} value={status.value}>{status.label}</option>
-                              ))}
-                            </select>
-                            <input
-                              value={student.note || ''}
-                              onChange={(e) => updateStudentField(student.id, 'note', e.target.value)}
-                              placeholder="Catatan (opsional)"
-                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                            />
-                            <div className="flex flex-col gap-2 text-xs text-slate-500">
-                              {(student.status === 'izin' || student.status === 'sakit') && (
-                                <>
-                                  <input
-                                    type="file"
-                                    onChange={(e) => handleUpload(student.id, e.target.files?.[0])}
-                                  />
-                                  {uploadingId === student.id && <span>Mengupload...</span>}
-                                  {student.attachmentUrl && (
-                                    <a
-                                      className="text-emerald-600 hover:underline"
-                                      href={buildFileUrl(student.attachmentUrl)}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                    >
-                                      Lihat lampiran
-                                    </a>
-                                  )}
-                                </>
-                              )}
-                              {(student.status !== 'izin' && student.status !== 'sakit') && <span>-</span>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700 disabled:opacity-70"
-                        type="button"
-                        onClick={handleUpdateEntries}
-                        disabled={saving}
-                      >
-                        {saving ? 'Menyimpan...' : 'Simpan Presensi'}
-                      </button>
-                      <button
-                        className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                        type="button"
-                        onClick={() => {
-                          const students = detail.students.map((student) => ({ ...student, status: 'hadir' }));
-                          setDetail({ ...detail, students });
-                        }}
-                      >
-                        Set Semua Hadir
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+        <div className="mt-8 flex justify-center">
+          <Pagination
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            totalItems={pagination.totalItems}
+            pageSize={pagination.pageSize}
+            onPageChange={load}
+          />
         </div>
-      )}
-    </section>
+      </Card>
+
+      {/* Modal Create & Detail */}
+      <Modal
+        isOpen={!!modal.type}
+        onClose={closeModal}
+        title={
+          modal.type === 'create' ? 'Buat Pertemuan Baru' :
+          modal.type === 'detail' ? 'Detail Presensi' : ''
+        }
+      >
+        {modal.type === 'create' && (
+          <form onSubmit={handleCreateMeeting} className="space-y-6">
+            {/* Form create meeting - full logic dari kode asli */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Tanggal</label>
+                <Input type="date" value={meetingForm.date} onChange={(e) => updateMeetingForm('date', e.target.value)} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Jadwal Mengajar</label>
+                <Select value={meetingForm.teachingAssignmentId} onChange={(e) => updateMeetingForm('teachingAssignmentId', e.target.value)} required>
+                  <option value="">Pilih pengampu</option>
+                  {teachingAssignments.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {formatRombelLabel(a.rombel)} • {a.subject?.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+
+            {selectedAssignment && (
+              <Card className="p-4 bg-slate-50">
+                <div className="text-xs font-semibold uppercase text-slate-500 mb-2">Ringkasan Pengampu</div>
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div>Rombel: <span className="font-medium">{formatRombelLabel(selectedAssignment.rombel)}</span></div>
+                  <div>Mapel: <span className="font-medium">{selectedAssignment.subject?.name}</span></div>
+                  <div>Periode: <span className="font-medium">{selectedAssignment.periodName}</span></div>
+                </div>
+              </Card>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Catatan Guru (opsional)</label>
+              <Input value={meetingForm.meetingNote} onChange={(e) => updateMeetingForm('meetingNote', e.target.value)} placeholder="Misal: guru piket hari ini" />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Jam Pelajaran (boleh lebih dari satu)</label>
+              <div className="grid grid-cols-2 gap-3 max-h-60 overflow-auto p-3 border border-slate-200 rounded-2xl">
+                {currentSlots.map((slot) => (
+                  <label key={slot.id} className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={meetingForm.timeSlotIds.includes(slot.id)} onChange={() => toggleSlot(slot.id)} />
+                    <span className="text-sm">
+                      {dayOptions.find(d => d.value === slot.dayOfWeek)?.label} • {slot.startTime}-{slot.endTime}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <Button type="submit" variant="primary" size="lg" disabled={saving} className="flex-1">
+                {saving ? 'Menyimpan...' : 'Buat Pertemuan'}
+              </Button>
+              <Button type="button" variant="secondary" size="lg" onClick={closeModal}>
+                Batal
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {modal.type === 'detail' && detail && (
+          <div className="space-y-6">
+            {/* Detail header */}
+            <div className="grid grid-cols-2 gap-y-4 text-sm">
+              <div><span className="text-xs uppercase text-slate-500">Tanggal</span><p className="font-semibold">{detail.date}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Rombel</span><p className="font-semibold">{formatRombelLabel(detail.rombel)}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Mapel</span><p className="font-semibold">{detail.subject?.name}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Jam</span><p className="font-semibold">{detail.timeSlots?.map(s => `${dayOptions.find(d => d.value === s.dayOfWeek)?.label} ${s.startTime}-${s.endTime}`).join(', ')}</p></div>
+            </div>
+
+            {/* Student list */}
+            <Card className="p-0">
+              <div className="max-h-[420px] overflow-auto">
+                {detail.students.map((student) => (
+                  <div key={student.id} className="grid grid-cols-1 sm:grid-cols-[1.4fr_0.9fr_1.2fr_1fr] gap-3 border-b p-4 items-center">
+                    <div>
+                      <div className="font-semibold">{student.name}</div>
+                      <div className="text-xs text-slate-500">{student.nis}</div>
+                    </div>
+
+                    <Select value={student.status} onChange={(e) => updateStudentField(student.id, 'status', e.target.value)}>
+                      {statusOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    </Select>
+
+                    <Input value={student.note || ''} onChange={(e) => updateStudentField(student.id, 'note', e.target.value)} placeholder="Catatan..." />
+
+                    <div>
+                      {(student.status === 'izin' || student.status === 'sakit') && (
+                        <>
+                          <input type="file" onChange={(e) => handleUpload(student.id, e.target.files[0])} className="text-xs" />
+                          {uploadingId === student.id && <span className="text-xs text-emerald-600">Uploading...</span>}
+                          {student.attachmentUrl && (
+                            <a href={buildFileUrl(student.attachmentUrl)} target="_blank" rel="noreferrer" className="text-emerald-600 text-xs underline">Lihat lampiran</a>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <div className="flex gap-3">
+              <Button onClick={handleUpdateEntries} disabled={saving} className="flex-1">
+                {saving ? 'Menyimpan...' : 'Simpan Presensi'}
+              </Button>
+              <Button variant="secondary" onClick={() => {
+                const updated = detail.students.map(s => ({ ...s, status: 'hadir' }));
+                setDetail({ ...detail, students: updated });
+              }}>
+                Set Semua Hadir
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
   );
 };
 

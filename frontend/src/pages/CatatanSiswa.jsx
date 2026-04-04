@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
-
-const emptyForm = {
-  studentId: '',
-  category: 'prestasi',
-  note: '',
-  date: ''
-};
+import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
+import Select from '../components/ui/Select';
+import Badge from '../components/ui/Badge';
+import Modal from '../components/ui/Modal';
+import Pagination from '../components/ui/Pagination';
+import {
+  buildPageParams,
+  DEFAULT_PAGE_SIZE,
+  fetchAllPages,
+  normalizePaginatedResponse
+} from '../utils/pagination';
 
 const categoryOptions = [
   { value: 'prestasi', label: 'Prestasi' },
@@ -16,7 +22,7 @@ const categoryOptions = [
 const CatatanSiswa = () => {
   const [notes, setNotes] = useState([]);
   const [students, setStudents] = useState([]);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState({ studentId: '', category: 'prestasi', note: '', date: '' });
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -25,50 +31,80 @@ const CatatanSiswa = () => {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [studentFilter, setStudentFilter] = useState('all');
   const [studentQuery, setStudentQuery] = useState('');
-  const studentMap = useMemo(() => new Map(students.map((s) => [s.id, s])), [students]);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    totalItems: 0,
+    totalPages: 1
+  });
 
-  const load = async () => {
+  const load = async ({
+    nextPage = page,
+    nextSearch = search,
+    nextCategory = categoryFilter,
+    nextStudent = studentFilter
+  } = {}) => {
     setLoading(true);
-    setError(null);
     try {
       const [noteRes, studentRes] = await Promise.all([
-        api.get('/student-notes'),
-        api.get('/siswa')
+        api.get('/student-notes', {
+          params: buildPageParams({
+            page: nextPage,
+            pageSize: DEFAULT_PAGE_SIZE,
+            search: nextSearch || undefined,
+            category: nextCategory !== 'all' ? nextCategory : undefined,
+            studentId: nextStudent !== 'all' ? nextStudent : undefined
+          })
+        }),
+        fetchAllPages(api, '/siswa')
       ]);
-      setNotes(noteRes.data || []);
-      setStudents(studentRes.data || []);
+      const normalized = normalizePaginatedResponse(noteRes.data);
+      setNotes(normalized.items || []);
+      setPagination(normalized);
+      setPage(normalized.page);
+      setStudents(studentRes || []);
     } catch (err) {
-      setError(err.response?.data?.message || 'Gagal memuat catatan');
+      setError('Gagal memuat data');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    load();
+    load({ nextPage: 1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const updateForm = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  };
+  const studentMap = useMemo(() => new Map(students.map(s => [s.id, s])), [students]);
+
+  const filteredStudents = students.filter(student => 
+    !studentQuery || student.name?.toLowerCase().includes(studentQuery.toLowerCase())
+  );
+
+  const updateForm = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 
   const resetForm = () => {
     const today = new Date().toISOString().slice(0, 10);
-    setForm({ ...emptyForm, date: today });
+    setForm({ studentId: '', category: 'prestasi', note: '', date: today });
     setEditingId(null);
+    setStudentQuery('');
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    setError(null);
+  const openCreate = () => {
+    resetForm();
+    setModal({ type: 'create' });
+  };
 
-    if (!form.studentId) {
-      setError('Siswa wajib dipilih');
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.studentId || !form.note.trim()) {
+      setError('Siswa dan catatan wajib diisi');
       return;
     }
 
     const payload = {
-      studentId: form.studentId ? Number(form.studentId) : null,
+      studentId: Number(form.studentId),
       category: form.category,
       note: form.note.trim(),
       date: form.date
@@ -80,8 +116,8 @@ const CatatanSiswa = () => {
       } else {
         await api.post('/student-notes', payload);
       }
+      setModal({ type: null });
       resetForm();
-      setModal({ type: null, item: null });
       load();
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal menyimpan catatan');
@@ -97,7 +133,7 @@ const CatatanSiswa = () => {
       date: note.date
     });
     setStudentQuery(note.student?.name || '');
-    setModal({ type: 'edit', item: note });
+    setModal({ type: 'edit' });
   };
 
   const handleDelete = (note) => {
@@ -108,304 +144,222 @@ const CatatanSiswa = () => {
     if (!modal.item) return;
     try {
       await api.delete(`/student-notes/${modal.item.id}`);
-      setModal({ type: null, item: null });
+      setModal({ type: null });
       load();
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal menghapus catatan');
     }
   };
 
-  const openCreate = () => {
-    resetForm();
-    setStudentQuery('');
-    setModal({ type: 'create', item: null });
-  };
-
-  const openDetail = (note) => {
-    setModal({ type: 'detail', item: note });
-  };
-
-  const closeModal = () => {
-    setModal({ type: null, item: null });
-    resetForm();
-    setStudentQuery('');
-  };
-
-  const filteredNotes = notes.filter((note) => {
-    const term = search.trim().toLowerCase();
-    const matchesSearch = !term
-      || note.note?.toLowerCase().includes(term)
-      || note.student?.name?.toLowerCase().includes(term);
-    const matchesCategory = categoryFilter === 'all' || note.category === categoryFilter;
-    const matchesStudent = studentFilter === 'all' || String(note.student?.id) === String(studentFilter);
-    return matchesSearch && matchesCategory && matchesStudent;
-  });
-
-  const filteredStudents = students.filter((student) => {
-    if (!studentQuery.trim()) return true;
-    return student.name?.toLowerCase().includes(studentQuery.toLowerCase());
-  });
-
-  useEffect(() => {
-    if (!studentQuery.trim()) return;
-    if (filteredStudents.length === 1) {
-      updateForm('studentId', filteredStudents[0].id);
-    }
-  }, [studentQuery, filteredStudents]);
-
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-8">
+      <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-900">Catatan Siswa</h1>
-          <p className="text-sm text-slate-600">Catatan prestasi atau masalah siswa.</p>
+          <h1 className="text-4xl font-semibold text-slate-900">Catatan Siswa</h1>
+          <p className="text-slate-600 mt-1">Kelola catatan prestasi dan masalah siswa</p>
         </div>
-        <button
-          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-          type="button"
-          onClick={openCreate}
-        >
+        <Button onClick={openCreate} size="lg">
           + Tambah Catatan
-        </button>
+        </Button>
       </div>
 
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Daftar Catatan</h2>
-            <span className="text-xs text-slate-500">{filteredNotes.length} catatan</span>
-          </div>
-          <div className="mt-4 grid gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 lg:grid-cols-[1.4fr_1fr_1fr]">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cari nama siswa atau isi catatan..."
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-            />
-            <select
-              value={studentFilter}
-              onChange={(e) => setStudentFilter(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-            >
-              <option value="all">Semua Siswa</option>
-              {students.map((student) => (
-                <option key={student.id} value={student.id}>{student.name}</option>
-              ))}
-            </select>
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-            >
-              <option value="all">Semua Kategori</option>
-              {categoryOptions.map((cat) => (
-                <option key={cat.value} value={cat.value}>{cat.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="mt-5 hidden grid-cols-[0.9fr_1.2fr_0.8fr_1.6fr_0.8fr] gap-4 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
-            <div>Tanggal</div>
-            <div>Siswa</div>
-            <div>Kategori</div>
-            <div>Catatan</div>
-            <div>Aksi</div>
-          </div>
-          <div className="mt-4 grid gap-4">
-            {filteredNotes.map((note) => (
-              <div
-                key={note.id}
-                className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[0.9fr_1.2fr_0.8fr_1.6fr_0.8fr] md:items-center"
-              >
-                <div className="text-sm text-slate-700">{note.date}</div>
-                <div className="text-sm font-semibold text-slate-900">{note.student?.name}</div>
-                <div className="text-sm text-slate-700">{note.category === 'prestasi' ? 'Prestasi' : 'Masalah'}</div>
-                <div className="text-sm text-slate-700">{note.note}</div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={() => openDetail(note)}
-                  >
-                    Detail
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={() => handleEdit(note)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
-                    type="button"
-                    onClick={() => handleDelete(note)}
-                  >
-                    Hapus
-                  </button>
-                </div>
-              </div>
+      {/* Filters */}
+      <Card className="p-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Input
+            placeholder="Cari nama siswa atau isi catatan..."
+            value={search}
+            onChange={(e) => {
+              const nextValue = e.target.value;
+              setSearch(nextValue);
+              load({ nextPage: 1, nextSearch: nextValue });
+            }}
+          />
+          <Select
+            value={studentFilter}
+            onChange={(e) => {
+              const nextValue = e.target.value;
+              setStudentFilter(nextValue);
+              load({ nextPage: 1, nextStudent: nextValue });
+            }}
+          >
+            <option value="all">Semua Siswa</option>
+            {students.map(s => (
+              <option key={s.id} value={s.id}>{s.name}</option>
             ))}
-            {!filteredNotes.length && !loading && (
-              <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-                Belum ada data.
+          </Select>
+          <Select
+            value={categoryFilter}
+            onChange={(e) => {
+              const nextValue = e.target.value;
+              setCategoryFilter(nextValue);
+              load({ nextPage: 1, nextCategory: nextValue });
+            }}
+          >
+            <option value="all">Semua Kategori</option>
+            {categoryOptions.map(cat => (
+              <option key={cat.value} value={cat.value}>{cat.label}</option>
+            ))}
+          </Select>
+        </div>
+      </Card>
+
+      {/* List Catatan */}
+      <div className="space-y-4">
+        {notes.map(note => (
+          <Card key={note.id} className="p-6 hover:shadow-md transition-shadow">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-3">
+                  <Badge variant={note.category === 'prestasi' ? 'success' : 'danger'}>
+                    {note.category === 'prestasi' ? 'Prestasi' : 'Masalah'}
+                  </Badge>
+                  <span className="font-semibold text-slate-900">{note.student?.name}</span>
+                </div>
+                <p className="text-slate-600 mt-3">{note.note}</p>
               </div>
-            )}
-          </div>
+              <div className="text-xs text-slate-500 whitespace-nowrap">
+                {note.date}
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <Button variant="secondary" size="sm" onClick={() => setModal({ type: 'detail', item: note })}>
+                Detail
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => handleEdit(note)}>
+                Edit
+              </Button>
+              <Button variant="danger" size="sm" onClick={() => handleDelete(note)}>
+                Hapus
+              </Button>
+            </div>
+          </Card>
+        ))}
+
+        {!notes.length && (
+          <Card className="p-12 text-center text-slate-500">
+            Belum ada catatan siswa.
+          </Card>
+        )}
+        <Pagination
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          totalItems={pagination.totalItems}
+          pageSize={pagination.pageSize}
+          onPageChange={(nextPage) => load({ nextPage })}
+        />
       </div>
 
-      {modal.type && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-slate-900/40" onClick={closeModal} />
-          <div className="relative w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
-            {modal.type === 'detail' && modal.item && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Detail Catatan</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
-                  <div><span className="text-xs uppercase text-slate-500">Siswa</span><div className="font-semibold">{modal.item.student?.name}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Kategori</span><div className="font-semibold">{modal.item.category === 'prestasi' ? 'Prestasi' : 'Masalah'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Tanggal</span><div className="font-semibold">{modal.item.date}</div></div>
-                  <div className="sm:col-span-2"><span className="text-xs uppercase text-slate-500">Catatan</span><div className="font-semibold">{modal.item.note}</div></div>
-                </div>
-              </div>
-            )}
+      {/* Modal */}
+      <Modal
+        isOpen={!!modal.type}
+        onClose={() => { setModal({ type: null }); resetForm(); }}
+        title={
+          modal.type === 'create' ? 'Tambah Catatan' :
+          modal.type === 'edit' ? 'Edit Catatan' :
+          modal.type === 'detail' ? 'Detail Catatan' : 'Hapus Catatan'
+        }
+      >
+        {/* Modal Create / Edit */}
+        {(modal.type === 'create' || modal.type === 'edit') && (
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Siswa</label>
+              <Input
+                value={studentQuery}
+                onChange={(e) => setStudentQuery(e.target.value)}
+                placeholder="Cari nama siswa..."
+              />
+              <Select
+                value={form.studentId}
+                onChange={(e) => {
+                  updateForm('studentId', e.target.value);
+                  const selected = studentMap.get(Number(e.target.value));
+                  if (selected) setStudentQuery(selected.name);
+                }}
+                className="mt-2"
+              >
+                <option value="">Pilih siswa</option>
+                {filteredStudents.map(student => (
+                  <option key={student.id} value={student.id}>{student.name}</option>
+                ))}
+              </Select>
+            </div>
 
-            {(modal.type === 'create' || modal.type === 'edit') && (
-              <form className="space-y-4" onSubmit={handleSubmit}>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">
-                    {modal.type === 'edit' ? 'Edit Catatan' : 'Tambah Catatan'}
-                  </h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" type="button" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="text-sm font-medium text-slate-700">
-                    Siswa
-                    <input
-                      value={studentQuery}
-                      onChange={(e) => {
-                        setStudentQuery(e.target.value);
-                        if (!e.target.value) updateForm('studentId', '');
-                      }}
-                      placeholder="Cari nama siswa..."
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                    <p className="mt-2 text-xs text-slate-500">
-                      Klik nama siswa di daftar untuk memilih.
-                    </p>
-                    <select
-                      value={form.studentId ? String(form.studentId) : ''}
-                      onChange={(e) => {
-                        const id = e.target.value ? Number(e.target.value) : '';
-                        updateForm('studentId', id);
-                        const selected = studentMap.get(id);
-                        if (selected) setStudentQuery(selected.name);
-                      }}
-                      required
-                      size="6"
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    >
-                      <option value="">Pilih siswa</option>
-                      {filteredStudents.map((student) => (
-                        <option key={student.id} value={student.id}>{student.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <label className="text-sm font-medium text-slate-700">
-                    Kategori
-                    <select
-                      value={form.category}
-                      onChange={(e) => updateForm('category', e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    >
-                      {categoryOptions.map((cat) => (
-                        <option key={cat.value} value={cat.value}>{cat.label}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Tanggal
-                    <input
-                      type="date"
-                      value={form.date}
-                      onChange={(e) => updateForm('date', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700 sm:col-span-2">
-                    Catatan
-                    <textarea
-                      value={form.note}
-                      onChange={(e) => updateForm('note', e.target.value)}
-                      rows="4"
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-                    type="submit"
-                  >
-                    {editingId ? 'Simpan Perubahan' : 'Tambah'}
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {modal.type === 'delete' && modal.item && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Hapus Catatan</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <p className="text-sm text-slate-600">
-                  Yakin ingin menghapus catatan untuk <span className="font-semibold">{modal.item.student?.name}</span>?
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-200 transition hover:bg-rose-700"
-                    type="button"
-                    onClick={handleConfirmDelete}
-                  >
-                    Hapus
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Kategori</label>
+                <Select value={form.category} onChange={(e) => updateForm('category', e.target.value)}>
+                  {categoryOptions.map(cat => (
+                    <option key={cat.value} value={cat.value}>{cat.label}</option>
+                  ))}
+                </Select>
               </div>
-            )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Tanggal</label>
+                <Input
+                  type="date"
+                  value={form.date}
+                  onChange={(e) => updateForm('date', e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Catatan</label>
+              <textarea
+                value={form.note}
+                onChange={(e) => updateForm('note', e.target.value)}
+                rows="4"
+                className="w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+                required
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <Button type="submit" variant="primary" size="lg" className="flex-1">
+                {editingId ? 'Simpan Perubahan' : 'Tambah Catatan'}
+              </Button>
+              <Button type="button" variant="secondary" size="lg" onClick={() => setModal({ type: null })}>
+                Batal
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {/* Modal Detail */}
+        {modal.type === 'detail' && modal.item && (
+          <div className="space-y-4">
+            <div className="flex justify-between">
+              <Badge variant={modal.item.category === 'prestasi' ? 'success' : 'danger'}>
+                {modal.item.category === 'prestasi' ? 'Prestasi' : 'Masalah'}
+              </Badge>
+              <span className="text-xs text-slate-500">{modal.item.date}</span>
+            </div>
+            <p className="font-semibold text-slate-900">{modal.item.student?.name}</p>
+            <p className="text-slate-600">{modal.item.note}</p>
           </div>
-        </div>
-      )}
-    </section>
+        )}
+
+        {/* Modal Delete */}
+        {modal.type === 'delete' && modal.item && (
+          <div className="space-y-6">
+            <p className="text-slate-600">
+              Yakin ingin menghapus catatan untuk <span className="font-semibold">{modal.item.student?.name}</span>?
+            </p>
+            <div className="flex gap-3">
+              <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">
+                Ya, Hapus
+              </Button>
+              <Button variant="secondary" onClick={() => setModal({ type: null })} className="flex-1">
+                Batal
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
   );
 };
 

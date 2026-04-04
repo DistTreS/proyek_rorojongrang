@@ -1,4 +1,5 @@
 const { sequelize, AcademicPeriod } = require('../models');
+const { paginateItems, parsePagination } = require('../utils/pagination');
 const { serviceError } = require('../utils/serviceError');
 
 const formatPeriod = (period) => ({
@@ -24,9 +25,10 @@ const validatePeriodInput = ({ name, startDate, endDate, semester }, { partial =
   }
 };
 
-const listAcademicPeriods = async () => {
+const listAcademicPeriods = async (query = {}) => {
+  const pagination = parsePagination(query);
   const periods = await AcademicPeriod.findAll({ order: [['startDate', 'DESC']] });
-  return periods.map(formatPeriod);
+  return paginateItems(periods.map(formatPeriod), pagination);
 };
 
 const getAcademicPeriodDetail = async (id) => {

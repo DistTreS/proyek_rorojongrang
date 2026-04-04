@@ -3,10 +3,18 @@ const { ROLES } = require('../config/rbac');
 const { Tendik, TeachingAssignment, Student, Rombel } = require('../models');
 const { serviceError } = require('../utils/serviceError');
 
-const isGuruUser = (user) => Array.isArray(user?.roles) && user.roles.includes(ROLES.GURU);
+const hasGuruRole = (user) => Array.isArray(user?.roles) && user.roles.includes(ROLES.GURU);
 
-const getTeacherContext = async (user, { required = false } = {}) => {
-  if (!isGuruUser(user)) {
+const isGuruScopedUser = (user) => {
+  const roles = Array.isArray(user?.roles) ? user.roles : [];
+  return roles.length > 0 && roles.every((role) => role === ROLES.GURU);
+};
+
+const isGuruUser = hasGuruRole;
+
+const getTeacherContext = async (user, { required = false, scopedOnly = false } = {}) => {
+  const canResolveTeacher = scopedOnly ? isGuruScopedUser(user) : hasGuruRole(user);
+  if (!canResolveTeacher) {
     return null;
   }
 
@@ -25,11 +33,11 @@ const getTeacherContext = async (user, { required = false } = {}) => {
 };
 
 const getAccessibleRombelIds = async (user, { periodId } = {}) => {
-  if (!isGuruUser(user)) {
+  if (!isGuruScopedUser(user)) {
     return null;
   }
 
-  const teacher = await getTeacherContext(user);
+  const teacher = await getTeacherContext(user, { scopedOnly: true });
   if (!teacher) {
     return [];
   }
@@ -48,7 +56,7 @@ const getAccessibleRombelIds = async (user, { periodId } = {}) => {
 };
 
 const getAccessibleStudentIds = async (user, { periodId } = {}) => {
-  if (!isGuruUser(user)) {
+  if (!isGuruScopedUser(user)) {
     return null;
   }
 
@@ -104,5 +112,7 @@ module.exports = {
   getAccessibleRombelIds,
   getAccessibleStudentIds,
   getTeacherContext,
+  hasGuruRole,
+  isGuruScopedUser,
   isGuruUser
 };

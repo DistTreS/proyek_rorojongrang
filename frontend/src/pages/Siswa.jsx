@@ -1,7 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
+import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
+import Select from '../components/ui/Select';
+import Badge from '../components/ui/Badge';
+import Modal from '../components/ui/Modal';
+import Pagination from '../components/ui/Pagination';
 import { useAuth } from '../context/useAuth';
 import { ADMIN_ROLES, canAccess } from '../constants/rbac';
+import {
+  buildPageParams,
+  DEFAULT_PAGE_SIZE,
+  fetchAllPages,
+  normalizePaginatedResponse
+} from '../utils/pagination';
 
 const emptyForm = {
   nis: '',
@@ -12,7 +25,7 @@ const emptyForm = {
 };
 
 const genderOptions = [
-  { value: '', label: 'Pilih' },
+  { value: '', label: 'Pilih Jenis Kelamin' },
   { value: 'L', label: 'Laki-laki' },
   { value: 'P', label: 'Perempuan' }
 ];
@@ -23,10 +36,10 @@ const formatRombelLabel = (rombel) => {
   return `${rombel.name} • ${typeLabel}`;
 };
 
-const isValidBirthDate = (value) => !value || /^\d{4}-\d{2}-\d{2}$/.test(value);
-
 const Siswa = () => {
   const { roles } = useAuth();
+  const canManage = canAccess(roles, ADMIN_ROLES);
+
   const [students, setStudents] = useState([]);
   const [rombels, setRombels] = useState([]);
   const [form, setForm] = useState(emptyForm);
@@ -36,18 +49,32 @@ const Siswa = () => {
   const [modal, setModal] = useState({ type: null, item: null });
   const [importFile, setImportFile] = useState(null);
   const [importResult, setImportResult] = useState(null);
-  const canManage = canAccess(roles, ADMIN_ROLES);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    totalItems: 0,
+    totalPages: 1
+  });
 
-  const load = async () => {
+  const load = async (nextPage = page) => {
     setLoading(true);
     setError(null);
     try {
       const [studentRes, rombelRes] = await Promise.all([
-        api.get('/siswa'),
-        api.get('/rombel')
+        api.get('/siswa', {
+          params: buildPageParams({
+            page: nextPage,
+            pageSize: DEFAULT_PAGE_SIZE
+          })
+        }),
+        fetchAllPages(api, '/rombel')
       ]);
-      setStudents(studentRes.data);
-      setRombels(rombelRes.data);
+      const normalized = normalizePaginatedResponse(studentRes.data);
+      setStudents(normalized.items || []);
+      setPagination(normalized);
+      setPage(normalized.page);
+      setRombels(rombelRes || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal memuat data siswa');
     } finally {
@@ -56,24 +83,20 @@ const Siswa = () => {
   };
 
   useEffect(() => {
-    load();
+    load(1);
   }, []);
 
-  const rombelMap = useMemo(() => {
-    return new Map(rombels.map((rombel) => [rombel.id, rombel]));
-  }, [rombels]);
+  const rombelMap = useMemo(() => new Map(rombels.map(r => [r.id, r])), [rombels]);
 
-  const updateForm = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  };
+  const updateForm = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 
   const toggleRombel = (id) => {
-    setForm((prev) => {
+    setForm(prev => {
       const exists = prev.rombelIds.includes(id);
-      const next = exists
-        ? prev.rombelIds.filter((item) => item !== id)
-        : [...prev.rombelIds, id];
-      return { ...prev, rombelIds: next };
+      return {
+        ...prev,
+        rombelIds: exists ? prev.rombelIds.filter(i => i !== id) : [...prev.rombelIds, id]
+      };
     });
   };
 
@@ -82,17 +105,12 @@ const Siswa = () => {
     setEditingId(null);
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     setError(null);
 
     if (!form.nis.trim() || !form.name.trim()) {
       setError('NIS dan nama wajib diisi');
-      return;
-    }
-
-    if (form.birthDate && !isValidBirthDate(form.birthDate)) {
-      setError('Format tanggal lahir tidak valid');
       return;
     }
 
@@ -110,8 +128,8 @@ const Siswa = () => {
       } else {
         await api.post('/siswa', payload);
       }
+      setModal({ type: null });
       resetForm();
-      setModal({ type: null, item: null });
       load();
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal menyimpan siswa');
@@ -125,20 +143,18 @@ const Siswa = () => {
       name: student.name,
       gender: student.gender || '',
       birthDate: student.birthDate || '',
-      rombelIds: student.rombels?.map((rombel) => rombel.id) || []
+      rombelIds: student.rombels?.map(r => r.id) || []
     });
     setModal({ type: 'edit', item: student });
   };
 
-  const handleDelete = async (student) => {
-    setModal({ type: 'delete', item: student });
-  };
+  const handleDelete = (student) => setModal({ type: 'delete', item: student });
 
   const handleConfirmDelete = async () => {
     if (!modal.item) return;
     try {
       await api.delete(`/siswa/${modal.item.id}`);
-      setModal({ type: null, item: null });
+      setModal({ type: null });
       load();
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal menghapus siswa');
@@ -147,36 +163,33 @@ const Siswa = () => {
 
   const openCreate = () => {
     resetForm();
-    setModal({ type: 'create', item: null });
+    setModal({ type: 'create' });
   };
 
-  const openDetail = (student) => {
-    setModal({ type: 'detail', item: student });
-  };
+  const openDetail = (student) => setModal({ type: 'detail', item: student });
 
   const closeModal = () => {
-    setModal({ type: null, item: null });
+    setModal({ type: null });
+    if (modal.type !== 'detail') resetForm();
   };
 
   const openImport = () => {
     setImportFile(null);
     setImportResult(null);
-    setModal({ type: 'import', item: null });
+    setModal({ type: 'import' });
   };
 
   const downloadTemplate = async () => {
     try {
-      const response = await api.get('/siswa/template', { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const res = await api.get('/siswa/template', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(res.data);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', 'template-siswa.xlsx');
-      document.body.appendChild(link);
+      link.download = 'template-siswa.xlsx';
       link.click();
-      link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      setError(err.response?.data?.message || 'Gagal mengunduh template');
+      setError('Gagal mengunduh template');
     }
   };
 
@@ -185,7 +198,6 @@ const Siswa = () => {
       setError('Pilih file Excel terlebih dahulu');
       return;
     }
-    setError(null);
     try {
       const formData = new FormData();
       formData.append('file', importFile);
@@ -200,312 +212,211 @@ const Siswa = () => {
   };
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-8">
+      <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-900">{canManage ? 'Data Siswa' : 'Daftar Siswa'}</h1>
-          <p className="text-sm text-slate-600">
-            {canManage ? 'Kelola data siswa dan keanggotaan rombel.' : 'Lihat data siswa dan keanggotaan rombel.'}
+          <h1 className="text-4xl font-semibold text-slate-900">
+            {canManage ? 'Data Siswa' : 'Daftar Siswa'}
+          </h1>
+          <p className="text-slate-600 mt-1">
+            {canManage ? 'Kelola data siswa dan keanggotaan rombel' : 'Lihat data siswa dan keanggotaan rombel'}
           </p>
         </div>
+
         {canManage && (
-          <div className="flex flex-wrap gap-2">
-            <button
-              className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-200 hover:text-emerald-700"
-              type="button"
-              onClick={openImport}
-            >
+          <div className="flex gap-3">
+            <Button variant="secondary" onClick={openImport}>
               Import Excel
-            </button>
-            <button
-              className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-              type="button"
-              onClick={openCreate}
-            >
+            </Button>
+            <Button onClick={openCreate} size="lg">
               + Tambah Siswa
-            </button>
+            </Button>
           </div>
         )}
       </div>
 
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      {error && <Card className="p-4 border-red-200 bg-red-50 text-red-700">{error}</Card>}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Daftar Siswa</h2>
-            <span className="text-xs text-slate-500">{students.length} siswa</span>
-          </div>
-          <div className={`mt-5 hidden gap-4 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid ${canManage ? 'grid-cols-[1.4fr_1fr_1.4fr_0.8fr]' : 'grid-cols-[1.4fr_1fr_1.8fr_0.6fr]'}`}>
-            <div>Nama</div>
-            <div>NIS</div>
-            <div>Rombel</div>
-            <div>Aksi</div>
-          </div>
-          <div className="mt-4 grid gap-4">
-            {students.map((student) => (
-              <div
-                key={student.id}
-                className={`grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:items-center ${canManage ? 'md:grid-cols-[1.4fr_1fr_1.4fr_0.8fr]' : 'md:grid-cols-[1.4fr_1fr_1.8fr_0.6fr]'}`}
-              >
+      {/* Daftar Siswa */}
+      <Card className="p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-lg font-semibold">Daftar Siswa</h2>
+          <span className="text-sm text-slate-500">{pagination.totalItems} siswa</span>
+        </div>
+
+        <div className="space-y-4">
+          {students.map(student => (
+            <Card key={student.id} className="p-6 hover:shadow-md transition-shadow">
+              <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr_1.8fr_0.8fr] gap-4 md:items-center">
                 <div>
-                  <div className="text-sm font-semibold text-slate-900">{student.name}</div>
-                  <div className="text-xs text-slate-500">{student.gender || '-'} • {student.birthDate || '-'}</div>
+                  <div className="font-semibold text-slate-900">{student.name}</div>
+                  <div className="text-xs text-slate-500">
+                    {student.gender ? (student.gender === 'L' ? 'Laki-laki' : 'Perempuan') : '-'} • {student.birthDate || '-'}
+                  </div>
                 </div>
-                <div className="text-sm text-slate-700">{student.nis}</div>
+                <div className="text-sm font-medium text-slate-700">{student.nis}</div>
                 <div className="text-sm text-slate-700">
                   {student.rombels?.length
-                    ? student.rombels.map((rombel) => formatRombelLabel(rombelMap.get(rombel.id) || rombel)).join(', ')
-                    : '-'
-                  }
+                    ? student.rombels.map(r => formatRombelLabel(rombelMap.get(r.id) || r)).join(', ')
+                    : '-'}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={() => openDetail(student)}
-                  >
+                <div className="flex gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => openDetail(student)}>
                     Detail
-                  </button>
+                  </Button>
                   {canManage && (
                     <>
-                      <button
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                        type="button"
-                        onClick={() => handleEdit(student)}
-                      >
+                      <Button variant="secondary" size="sm" onClick={() => handleEdit(student)}>
                         Edit
-                      </button>
-                      <button
-                        className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
-                        type="button"
-                        onClick={() => handleDelete(student)}
-                      >
+                      </Button>
+                      <Button variant="danger" size="sm" onClick={() => handleDelete(student)}>
                         Hapus
-                      </button>
+                      </Button>
                     </>
                   )}
                 </div>
               </div>
-            ))}
-            {!students.length && !loading && (
-              <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-                Belum ada data.
-              </div>
-            )}
-          </div>
-      </div>
+            </Card>
+          ))}
 
-      {modal.type && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-slate-900/40" onClick={closeModal} />
-          <div className="relative w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
-            {modal.type === 'detail' && modal.item && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Detail Siswa</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
-                  <div><span className="text-xs uppercase text-slate-500">NIS</span><div className="font-semibold">{modal.item.nis}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Nama</span><div className="font-semibold">{modal.item.name}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Gender</span><div className="font-semibold">{modal.item.gender || '-'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Tanggal Lahir</span><div className="font-semibold">{modal.item.birthDate || '-'}</div></div>
-                  <div className="sm:col-span-2"><span className="text-xs uppercase text-slate-500">Rombel</span><div className="font-semibold">{modal.item.rombels?.length ? modal.item.rombels.map((r) => formatRombelLabel(rombelMap.get(r.id) || r)).join(', ') : '-'}</div></div>
-                </div>
-              </div>
-            )}
-
-            {(modal.type === 'create' || modal.type === 'edit') && (
-              <form className="space-y-4" onSubmit={handleSubmit}>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">
-                    {modal.type === 'edit' ? 'Edit Siswa' : 'Tambah Siswa'}
-                  </h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" type="button" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="text-sm font-medium text-slate-700">
-                    NIS
-                    <input
-                      value={form.nis}
-                      onChange={(e) => updateForm('nis', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Nama
-                    <input
-                      value={form.name}
-                      onChange={(e) => updateForm('name', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Jenis Kelamin
-                    <select
-                      value={form.gender}
-                      onChange={(e) => updateForm('gender', e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    >
-                      {genderOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Tanggal Lahir
-                    <input
-                      type="date"
-                      value={form.birthDate}
-                      onChange={(e) => updateForm('birthDate', e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rombel</div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    {rombels.map((rombel) => (
-                      <label key={rombel.id} className="flex items-center gap-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={form.rombelIds.includes(rombel.id)}
-                          onChange={() => toggleRombel(rombel.id)}
-                          className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
-                        />
-                        {formatRombelLabel(rombel)} {rombel.gradeLevel ? `(${rombel.gradeLevel})` : ''}
-                      </label>
-                    ))}
-                    {!rombels.length && (
-                      <div className="text-sm text-slate-500">Belum ada data rombel.</div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-                    type="submit"
-                  >
-                    {editingId ? 'Simpan Perubahan' : 'Tambah'}
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {modal.type === 'delete' && modal.item && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Hapus Siswa</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <p className="text-sm text-slate-600">
-                  Yakin ingin menghapus <span className="font-semibold">{modal.item.name}</span>?
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-200 transition hover:bg-rose-700"
-                    type="button"
-                    onClick={handleConfirmDelete}
-                  >
-                    Hapus
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {modal.type === 'import' && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Import Siswa</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                  Unduh template terlebih dahulu, isi data, lalu unggah kembali.
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={downloadTemplate}
-                  >
-                    Download Template
-                  </button>
-                  <input
-                    type="file"
-                    accept=".xlsx"
-                    onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-                    className="text-sm"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-                    type="button"
-                    onClick={handleImport}
-                  >
-                    Import
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                </div>
-                {importResult && (
-                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-700">
-                    Berhasil: {importResult.success} data.
-                    {importResult.failed?.length ? (
-                      <div className="mt-2 text-xs text-emerald-700">
-                        Gagal: {importResult.failed.length} baris.
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-                {importResult?.failed?.length ? (
-                  <div className="max-h-40 overflow-auto rounded-2xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
-                    {importResult.failed.map((item, idx) => (
-                      <div key={`${item.row}-${idx}`}>Baris {item.row}: {item.message}</div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            )}
-          </div>
+          {!students.length && !loading && (
+            <div className="text-center py-12 text-slate-500">Belum ada data siswa.</div>
+          )}
         </div>
-      )}
-    </section>
+
+        <div className="mt-8 flex justify-center">
+          <Pagination
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            totalItems={pagination.totalItems}
+            pageSize={pagination.pageSize}
+            onPageChange={load}
+          />
+        </div>
+      </Card>
+
+      {/* Modal */}
+      <Modal
+        isOpen={!!modal.type}
+        onClose={closeModal}
+        title={
+          modal.type === 'create' ? 'Tambah Siswa' :
+          modal.type === 'edit' ? 'Edit Siswa' :
+          modal.type === 'detail' ? 'Detail Siswa' :
+          modal.type === 'delete' ? 'Hapus Siswa' : 'Import Siswa'
+        }
+      >
+        {/* Create / Edit */}
+        {(modal.type === 'create' || modal.type === 'edit') && (
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">NIS</label>
+                <Input value={form.nis} onChange={e => updateForm('nis', e.target.value)} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Nama Lengkap</label>
+                <Input value={form.name} onChange={e => updateForm('name', e.target.value)} required />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Jenis Kelamin</label>
+                <Select value={form.gender} onChange={e => updateForm('gender', e.target.value)}>
+                  {genderOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </Select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Tanggal Lahir</label>
+                <Input type="date" value={form.birthDate} onChange={e => updateForm('birthDate', e.target.value)} />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-3">Rombel (boleh lebih dari satu)</label>
+              <div className="max-h-64 overflow-auto grid grid-cols-1 sm:grid-cols-2 gap-3 border border-slate-200 rounded-2xl p-4 bg-slate-50">
+                {rombels.map(rombel => (
+                  <label key={rombel.id} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.rombelIds.includes(rombel.id)}
+                      onChange={() => toggleRombel(rombel.id)}
+                    />
+                    <span className="text-sm">{formatRombelLabel(rombel)}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <Button type="submit" variant="primary" size="lg" className="flex-1">
+                {editingId ? 'Simpan Perubahan' : 'Tambah Siswa'}
+              </Button>
+              <Button type="button" variant="secondary" size="lg" onClick={closeModal}>
+                Batal
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {/* Detail */}
+        {modal.type === 'detail' && modal.item && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div><span className="text-xs uppercase text-slate-500">NIS</span><p className="font-semibold">{modal.item.nis}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Nama</span><p className="font-semibold">{modal.item.name}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Gender</span><p className="font-semibold">{modal.item.gender === 'L' ? 'Laki-laki' : modal.item.gender === 'P' ? 'Perempuan' : '-'}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Tanggal Lahir</span><p className="font-semibold">{modal.item.birthDate || '-'}</p></div>
+            </div>
+            <div>
+              <span className="text-xs uppercase text-slate-500">Rombel</span>
+              <p className="mt-1 font-medium">
+                {modal.item.rombels?.length
+                  ? modal.item.rombels.map(r => formatRombelLabel(rombelMap.get(r.id) || r)).join(', ')
+                  : '-'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Delete */}
+        {modal.type === 'delete' && modal.item && (
+          <div className="space-y-6">
+            <p className="text-slate-600">Yakin ingin menghapus siswa <span className="font-semibold">{modal.item.name}</span>?</p>
+            <div className="flex gap-3">
+              <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">Hapus</Button>
+              <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
+            </div>
+          </div>
+        )}
+
+        {/* Import */}
+        {modal.type === 'import' && (
+          <div className="space-y-6">
+            <div className="text-sm text-slate-600">
+              Unduh template, isi data, lalu upload kembali.
+            </div>
+            <Button variant="secondary" onClick={downloadTemplate} className="w-full">
+              📥 Download Template Excel
+            </Button>
+            <Input type="file" accept=".xlsx" onChange={e => setImportFile(e.target.files?.[0] || null)} />
+            
+            <div className="flex gap-3">
+              <Button onClick={handleImport} className="flex-1" disabled={!importFile}>Import Data</Button>
+              <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
+            </div>
+
+            {importResult && (
+              <Card className="p-4 bg-emerald-50 border-emerald-200">
+                <p className="text-emerald-700">Berhasil import {importResult.success} siswa.</p>
+                {importResult.failed?.length > 0 && <p className="text-xs text-emerald-600 mt-2">Gagal: {importResult.failed.length} baris</p>}
+              </Card>
+            )}
+          </div>
+        )}
+      </Modal>
+    </div>
   );
 };
 

@@ -13,6 +13,7 @@ const {
   sequelize
 } = require('../models');
 const { getTeacherContext, isGuruUser } = require('./teacherOperationalService');
+const { paginateItems, parsePagination } = require('../utils/pagination');
 const { serviceError } = require('../utils/serviceError');
 
 const buildTeacherMeetingScope = (teacherId) => ({
@@ -116,7 +117,15 @@ const formatAttendanceRow = (row) => ({
   substituteTeacher: row.SubstituteTeacher
 });
 
-const listAttendance = async ({ user, date, rombelId, studentId, timeSlotId }) => {
+const listAttendance = async (query = {}) => {
+  const pagination = parsePagination(query);
+  const {
+    user,
+    date,
+    rombelId,
+    studentId,
+    timeSlotId
+  } = query;
   const where = {};
   if (date) where.date = date;
   if (rombelId) where.rombelId = rombelId;
@@ -141,7 +150,7 @@ const listAttendance = async ({ user, date, rombelId, studentId, timeSlotId }) =
     order: [['date', 'DESC']]
   });
 
-  return rows.map(formatAttendanceRow);
+  return paginateItems(rows.map(formatAttendanceRow), pagination);
 };
 
 const createAttendance = async ({ user, payload }) => {
@@ -191,7 +200,14 @@ const createAttendance = async ({ user, payload }) => {
   };
 };
 
-const listAttendanceMeetings = async ({ user, date, rombelId, subjectId }) => {
+const listAttendanceMeetings = async (query = {}) => {
+  const pagination = parsePagination(query);
+  const {
+    user,
+    date,
+    rombelId,
+    subjectId
+  } = query;
   const where = { meetingId: { [Op.ne]: null } };
   if (date) where.date = date;
   if (rombelId) where.rombelId = rombelId;
@@ -215,7 +231,7 @@ const listAttendanceMeetings = async ({ user, date, rombelId, subjectId }) => {
     order: [['date', 'DESC']]
   });
 
-  return normalizeMeetingRows(rows);
+  return paginateItems(normalizeMeetingRows(rows), pagination);
 };
 
 const getAttendanceMeetingDetail = async ({ user, meetingId }) => {

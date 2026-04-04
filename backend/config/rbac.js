@@ -99,7 +99,7 @@ const ACCESS = Object.freeze({
     view: freezeRoles(ROLE_LIST)
   }),
   rombel: Object.freeze({
-    view: freezeRoles([ROLES.WAKASEK, ROLES.GURU]),
+    view: freezeRoles([ROLES.STAFF_TU, ROLES.WAKASEK, ROLES.GURU]),
     manage: freezeRoles(SCHEDULING_MANAGER_ROLES)
   }),
   schedule: Object.freeze({

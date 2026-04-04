@@ -4,6 +4,7 @@ module.exports = (sequelize, DataTypes) => {
     username: { type: DataTypes.STRING(50), allowNull: false, unique: true },
     email: { type: DataTypes.STRING(100), allowNull: false, unique: true },
     passwordHash: { type: DataTypes.STRING(255), allowNull: false },
+    avatarUrl: { type: DataTypes.STRING(255), allowNull: true },
     isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }
   });
 

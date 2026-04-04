@@ -17,7 +17,7 @@ const handleError = (res, err, fallbackMessage) => {
 
 const list = async (req, res) => {
   try {
-    const data = await listTendik({ search: req.query.search });
+    const data = await listTendik(req.query);
     return res.json(data);
   } catch (err) {
     return handleError(res, err, 'Gagal memuat data tendik');

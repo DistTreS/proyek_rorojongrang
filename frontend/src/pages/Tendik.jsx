@@ -1,11 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
+import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
+import Select from '../components/ui/Select';
+import Badge from '../components/ui/Badge';
+import Modal from '../components/ui/Modal';
+import Pagination from '../components/ui/Pagination';
 import {
   ROLE_LABELS,
   ROLE_OPTIONS,
   ROLES,
   normalizeRoles
 } from '../constants/rbac';
+import {
+  buildPageParams,
+  DEFAULT_PAGE_SIZE,
+  normalizePaginatedResponse
+} from '../utils/pagination';
 
 const emptyForm = {
   username: '',
@@ -27,18 +39,35 @@ const Tendik = ({
   const [items, setItems] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [message, setMessage] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [modal, setModal] = useState({ type: null, item: null });
   const [importFile, setImportFile] = useState(null);
   const [importResult, setImportResult] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    totalItems: 0,
+    totalPages: 1
+  });
 
-  const load = async () => {
+  const load = async (nextPage = page) => {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await api.get('/tendik');
-      setItems(data);
+      const { data } = await api.get('/tendik', {
+        params: buildPageParams({
+          page: nextPage,
+          pageSize: DEFAULT_PAGE_SIZE
+        })
+      });
+      const normalized = normalizePaginatedResponse(data);
+      setItems(normalized.items || []);
+      setPagination(normalized);
+      setPage(normalized.page);
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal memuat data tendik');
     } finally {
@@ -47,20 +76,18 @@ const Tendik = ({
   };
 
   useEffect(() => {
-    load();
+    load(1);
   }, []);
 
   const roleSet = useMemo(() => new Set(form.roles), [form.roles]);
 
-  const updateForm = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  };
+  const updateForm = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 
   const toggleRole = (value) => {
-    setForm((prev) => {
+    setForm(prev => {
       const has = prev.roles.includes(value);
       const nextRoles = has
-        ? prev.roles.filter((role) => role !== value)
+        ? prev.roles.filter(role => role !== value)
         : [...prev.roles, value];
       return { ...prev, roles: nextRoles };
     });
@@ -71,63 +98,53 @@ const Tendik = ({
     setEditingId(null);
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const validateForm = () => {
+    if (!form.username.trim() || !form.email.trim() || !form.name.trim()) return 'Username, email, dan nama wajib diisi';
+    if (!isValidEmail(form.email.trim())) return 'Format email tidak valid';
+    if (!editingId && (!form.password || form.password.length < 6)) return 'Password minimal 6 karakter untuk akun baru';
+    if (!normalizeRoles(form.roles).length) return 'Minimal satu role harus dipilih';
+    return null;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     setError(null);
+    setMessage(null);
 
-    if (!form.username.trim() || !form.email.trim() || !form.name.trim()) {
-      setError('Username, email, dan nama wajib diisi');
-      return;
-    }
-
-    if (!isValidEmail(form.email.trim())) {
-      setError('Format email tidak valid');
-      return;
-    }
-
-    if (!editingId && form.password.trim().length < 6) {
-      setError('Password minimal 6 karakter untuk akun baru');
-      return;
-    }
-
-    if (!normalizeRoles(form.roles).length) {
-      setError('Minimal satu role harus dipilih');
+    const validationError = validateForm();
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
     const payload = {
       username: form.username.trim(),
       email: form.email.trim(),
-      password: form.password,
       name: form.name.trim(),
       nip: form.nip.trim() || null,
       position: form.position.trim() || null,
-      roles: normalizeRoles(form.roles).length
-        ? normalizeRoles(form.roles)
-        : [ROLES.GURU],
+      roles: normalizeRoles(form.roles),
       isActive: form.isActive
     };
 
-    if (!editingId && !payload.password) {
-      setError('Password wajib untuk akun baru');
-      return;
-    }
+    if (!editingId) payload.password = form.password;
+    if (editingId && form.password) payload.password = form.password;
 
-    if (editingId && !payload.password) {
-      delete payload.password;
-    }
-
+    setSaving(true);
     try {
       if (editingId) {
         await api.put(`/tendik/${editingId}`, payload);
       } else {
         await api.post('/tendik', payload);
       }
+      setMessage('Data berhasil disimpan ✅');
       resetForm();
-      setModal({ type: null, item: null });
+      setModal({ type: null });
       load();
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal menyimpan data');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -146,15 +163,13 @@ const Tendik = ({
     setModal({ type: 'edit', item });
   };
 
-  const handleDelete = async (item) => {
-    setModal({ type: 'delete', item });
-  };
+  const handleDelete = (item) => setModal({ type: 'delete', item });
 
   const handleConfirmDelete = async () => {
     if (!modal.item) return;
     try {
       await api.delete(`/tendik/${modal.item.id}`);
-      setModal({ type: null, item: null });
+      setModal({ type: null });
       load();
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal menghapus data');
@@ -163,36 +178,33 @@ const Tendik = ({
 
   const openCreate = () => {
     resetForm();
-    setModal({ type: 'create', item: null });
+    setModal({ type: 'create' });
   };
 
-  const openDetail = (item) => {
-    setModal({ type: 'detail', item });
-  };
+  const openDetail = (item) => setModal({ type: 'detail', item });
 
   const closeModal = () => {
-    setModal({ type: null, item: null });
+    setModal({ type: null });
+    if (modal.type !== 'detail') resetForm();
   };
 
   const openImport = () => {
     setImportFile(null);
     setImportResult(null);
-    setModal({ type: 'import', item: null });
+    setModal({ type: 'import' });
   };
 
   const downloadTemplate = async () => {
     try {
-      const response = await api.get('/tendik/template', { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const res = await api.get('/tendik/template', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(res.data);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', 'template-tendik.xlsx');
-      document.body.appendChild(link);
+      link.download = 'template-tendik.xlsx';
       link.click();
-      link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      setError(err.response?.data?.message || 'Gagal mengunduh template');
+      setError('Gagal mengunduh template');
     }
   };
 
@@ -201,7 +213,6 @@ const Tendik = ({
       setError('Pilih file Excel terlebih dahulu');
       return;
     }
-    setError(null);
     try {
       const formData = new FormData();
       formData.append('file', importFile);
@@ -216,329 +227,252 @@ const Tendik = ({
   };
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-8">
+      <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-900">{pageTitle}</h1>
-          <p className="text-sm text-slate-600">{pageDescription}</p>
+          <h1 className="text-4xl font-semibold text-slate-900">{pageTitle}</h1>
+          <p className="text-slate-600 mt-1">{pageDescription}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-200 hover:text-emerald-700"
-            type="button"
-            onClick={openImport}
-          >
+
+        <div className="flex gap-3">
+          <Button variant="secondary" onClick={openImport}>
             Import Excel
-          </button>
-          <button
-            className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-            type="button"
-            onClick={openCreate}
-          >
+          </Button>
+          <Button onClick={openCreate} size="lg">
             + Tambah Tendik
-          </button>
+          </Button>
         </div>
       </div>
 
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      {error && <Card className="p-4 border-red-200 bg-red-50 text-red-700">{error}</Card>}
+      {message && <Card className="p-4 border-emerald-200 bg-emerald-50 text-emerald-700">{message}</Card>}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Daftar Tendik</h2>
-            <span className="text-xs text-slate-500">{items.length} orang</span>
-          </div>
-          <div className="mt-5 hidden grid-cols-[1.6fr_1fr_1.1fr_0.7fr_0.9fr] gap-4 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
-            <div>Nama</div>
-            <div>Username</div>
-            <div>Role</div>
-            <div>Status</div>
-            <div>Aksi</div>
-          </div>
-          <div className="mt-4 grid gap-4">
-            {items.map((item) => (
-              <div
-                key={item.id}
-                className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1.6fr_1fr_1.1fr_0.7fr_0.9fr] md:items-center"
-              >
+      {/* Daftar Tendik */}
+      <Card className="p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-lg font-semibold">Daftar Tendik</h2>
+          <span className="text-sm text-slate-500">{pagination.totalItems} orang</span>
+        </div>
+
+        <div className="space-y-4">
+          {items.map(item => (
+            <Card key={item.id} className="p-6 hover:shadow-md transition-shadow">
+              <div className="grid grid-cols-1 md:grid-cols-[1.6fr_1fr_1.1fr_0.7fr_0.9fr] gap-4 md:items-center">
                 <div>
-                  <div className="text-sm font-semibold text-slate-900">{item.name}</div>
-                <div className="text-xs text-slate-500">{item.nip || '-'} • {item.user.primaryRoleLabel || '-'}</div>
+                  <div className="font-semibold text-slate-900">{item.name}</div>
+                  <div className="text-xs text-slate-500">{item.nip || '-'} • {item.user?.primaryRoleLabel || '-'}</div>
                 </div>
-                <div className="text-sm text-slate-700">{item.user.username}</div>
-                <div className="text-sm text-slate-700">{item.user.roles.map((role) => ROLE_LABELS[role] || role).join(', ')}</div>
-                <div>
-                  <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${item.user.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
-                    {item.user.isActive ? 'Aktif' : 'Nonaktif'}
-                  </span>
-                </div>
+                <div className="text-sm text-slate-700">{item.user?.username}</div>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={() => openDetail(item)}
-                  >
+                  {item.user?.roles?.map(role => (
+                    <Badge key={role} variant="success">{ROLE_LABELS[role] || role}</Badge>
+                  ))}
+                </div>
+                <div>
+                  <Badge variant={item.user?.isActive ? 'success' : 'default'}>
+                    {item.user?.isActive ? 'Aktif' : 'Nonaktif'}
+                  </Badge>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => openDetail(item)}>
                     Detail
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={() => handleEdit(item)}
-                  >
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => handleEdit(item)}>
                     Edit
-                  </button>
-                  <button
-                    className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
-                    type="button"
-                    onClick={() => handleDelete(item)}
-                  >
+                  </Button>
+                  <Button variant="danger" size="sm" onClick={() => handleDelete(item)}>
                     Hapus
-                  </button>
+                  </Button>
                 </div>
               </div>
-            ))}
-            {!items.length && !loading && (
-              <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-                Belum ada data.
-              </div>
-            )}
-          </div>
-      </div>
+            </Card>
+          ))}
 
-      {modal.type && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-slate-900/40" onClick={closeModal} />
-          <div className="relative w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
-            {modal.type === 'detail' && modal.item && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Detail Tendik</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
-                  <div><span className="text-xs uppercase text-slate-500">Nama</span><div className="font-semibold">{modal.item.name}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">NIP</span><div className="font-semibold">{modal.item.nip || '-'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Jabatan</span><div className="font-semibold">{modal.item.position || '-'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Role Utama</span><div className="font-semibold">{modal.item.user.primaryRoleLabel || '-'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Username</span><div className="font-semibold">{modal.item.user.username}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Email</span><div className="font-semibold">{modal.item.user.email}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Status</span><div className="font-semibold">{modal.item.user.isActive ? 'Aktif' : 'Nonaktif'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Role</span><div className="font-semibold">{modal.item.user.roles.join(', ')}</div></div>
-                </div>
-              </div>
-            )}
-
-            {(modal.type === 'create' || modal.type === 'edit') && (
-              <form className="space-y-4" onSubmit={handleSubmit}>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">
-                    {modal.type === 'edit' ? 'Edit Tendik' : 'Tambah Tendik'}
-                  </h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" type="button" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="text-sm font-medium text-slate-700">
-                    Nama
-                    <input
-                      value={form.name}
-                      onChange={(e) => updateForm('name', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    NIP
-                    <input
-                      value={form.nip}
-                      onChange={(e) => updateForm('nip', e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Jabatan
-                    <input
-                      value={form.position}
-                      onChange={(e) => updateForm('position', e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Username
-                    <input
-                      value={form.username}
-                      onChange={(e) => updateForm('username', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Email
-                    <input
-                      type="email"
-                      value={form.email}
-                      onChange={(e) => updateForm('email', e.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700 sm:col-span-2">
-                    Password {editingId ? '(opsional)' : ''}
-                    <input
-                      type="password"
-                      value={form.password}
-                      onChange={(e) => updateForm('password', e.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                </div>
-
-                <div className="flex items-center gap-3 text-sm text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={form.isActive}
-                    onChange={(e) => updateForm('isActive', e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
-                  />
-                  <span>Aktif</span>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Role</div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    {ROLE_OPTIONS.map((role) => (
-                      <label key={role.value} className="flex items-center gap-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={roleSet.has(role.value)}
-                          onChange={() => toggleRole(role.value)}
-                          className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
-                        />
-                        {role.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-                    type="submit"
-                  >
-                    {editingId ? 'Simpan Perubahan' : 'Tambah'}
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {modal.type === 'import' && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Import Tendik</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                  Unduh template terlebih dahulu, isi data, lalu unggah kembali.
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={downloadTemplate}
-                  >
-                    Download Template
-                  </button>
-                  <input
-                    type="file"
-                    accept=".xlsx"
-                    onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-                    className="text-sm"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-                    type="button"
-                    onClick={handleImport}
-                  >
-                    Import
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                </div>
-                {importResult && (
-                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-700">
-                    Berhasil: {importResult.success} data.
-                    {importResult.failed?.length ? (
-                      <div className="mt-2 text-xs text-emerald-700">
-                        Gagal: {importResult.failed.length} baris.
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-                {importResult?.failed?.length ? (
-                  <div className="max-h-40 overflow-auto rounded-2xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
-                    {importResult.failed.map((item, idx) => (
-                      <div key={`${item.row}-${idx}`}>Baris {item.row}: {item.message}</div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            )}
-
-            {modal.type === 'delete' && modal.item && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Hapus Tendik</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <p className="text-sm text-slate-600">
-                  Yakin ingin menghapus <span className="font-semibold">{modal.item.name}</span>? Data akun akan ikut terhapus.
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-200 transition hover:bg-rose-700"
-                    type="button"
-                    onClick={handleConfirmDelete}
-                  >
-                    Hapus
-                  </button>
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+          {!items.length && !loading && (
+            <div className="text-center py-12 text-slate-500">Belum ada data tendik.</div>
+          )}
         </div>
-      )}
-    </section>
+
+        <div className="mt-8 flex justify-center">
+          <Pagination
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            totalItems={pagination.totalItems}
+            pageSize={pagination.pageSize}
+            onPageChange={load}
+          />
+        </div>
+      </Card>
+
+      {/* Modal */}
+      <Modal
+        isOpen={!!modal.type}
+        onClose={closeModal}
+        title={
+          modal.type === 'create' ? 'Tambah Tendik' :
+          modal.type === 'edit' ? 'Edit Tendik' :
+          modal.type === 'detail' ? 'Detail Tendik' :
+          modal.type === 'delete' ? 'Hapus Tendik' : 'Import Tendik'
+        }
+      >
+        {/* Create / Edit */}
+        {(modal.type === 'create' || modal.type === 'edit') && (
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Nama Lengkap</label>
+                <Input value={form.name} onChange={e => updateForm('name', e.target.value)} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">NIP</label>
+                <Input value={form.nip} onChange={e => updateForm('nip', e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Jabatan</label>
+                <Input value={form.position} onChange={e => updateForm('position', e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Username</label>
+                <Input value={form.username} onChange={e => updateForm('username', e.target.value)} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
+                <Input type="email" value={form.email} onChange={e => updateForm('email', e.target.value)} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Password {editingId ? '(opsional)' : ''}</label>
+                <Input type="password" value={form.password} onChange={e => updateForm('password', e.target.value)} />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={form.isActive}
+                onChange={e => updateForm('isActive', e.target.checked)}
+              />
+              <span className="text-sm text-slate-700">Aktif</span>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-3">Role</label>
+              <div className="grid grid-cols-2 gap-3">
+                {ROLE_OPTIONS.map(role => (
+                  <label key={role.value} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={roleSet.has(role.value)}
+                      onChange={() => toggleRole(role.value)}
+                    />
+                    <span>{role.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <Button type="submit" variant="primary" size="lg" className="flex-1" disabled={saving}>
+                {saving ? 'Menyimpan...' : editingId ? 'Simpan Perubahan' : 'Tambah Tendik'}
+              </Button>
+              <Button type="button" variant="secondary" size="lg" onClick={closeModal}>
+                Batal
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {modal.type === 'detail' && modal.item && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-xs uppercase text-slate-500">Nama</span>
+                <p className="font-semibold">{modal.item.name}</p>
+              </div>
+              <div>
+                <span className="text-xs uppercase text-slate-500">NIP</span>
+                <p className="font-semibold">{modal.item.nip || '-'}</p>
+              </div>
+              <div>
+                <span className="text-xs uppercase text-slate-500">Jabatan</span>
+                <p className="font-semibold">{modal.item.position || '-'}</p>
+              </div>
+              <div>
+                <span className="text-xs uppercase text-slate-500">Username</span>
+                <p className="font-semibold">{modal.item.user?.username || '-'}</p>
+              </div>
+              <div>
+                <span className="text-xs uppercase text-slate-500">Email</span>
+                <p className="font-semibold">{modal.item.user?.email || '-'}</p>
+              </div>
+              <div>
+                <span className="text-xs uppercase text-slate-500">Status</span>
+                <p className="font-semibold">{modal.item.user?.isActive ? 'Aktif' : 'Nonaktif'}</p>
+              </div>
+            </div>
+
+            <div>
+              <span className="text-xs uppercase text-slate-500">Role</span>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {modal.item.user?.roles?.length
+                  ? modal.item.user.roles.map((role) => (
+                    <Badge key={role} variant="success">{ROLE_LABELS[role] || role}</Badge>
+                  ))
+                  : <Badge variant="default">-</Badge>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {modal.type === 'delete' && modal.item && (
+          <div className="space-y-6">
+            <p className="text-slate-600">
+              Yakin ingin menghapus tendik <span className="font-semibold">{modal.item.name}</span>?
+            </p>
+            <div className="flex gap-3">
+              <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">Hapus</Button>
+              <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
+            </div>
+          </div>
+        )}
+
+        {modal.type === 'import' && (
+          <div className="space-y-6">
+            <div className="text-sm text-slate-600">
+              Unduh template, isi data tendik, lalu upload kembali.
+            </div>
+
+            <Button type="button" variant="secondary" onClick={downloadTemplate} className="w-full">
+              Download Template Excel
+            </Button>
+
+            <Input
+              type="file"
+              accept=".xlsx"
+              onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+            />
+
+            <div className="flex gap-3">
+              <Button type="button" onClick={handleImport} className="flex-1" disabled={!importFile}>
+                Import Data
+              </Button>
+              <Button type="button" variant="secondary" onClick={closeModal} className="flex-1">
+                Batal
+              </Button>
+            </div>
+
+            {importResult && (
+              <Card className="p-4 bg-emerald-50 border-emerald-200">
+                <p className="text-emerald-700">Berhasil import {importResult.success} data.</p>
+                {importResult.failed?.length > 0 && (
+                  <p className="mt-2 text-xs text-amber-700">Gagal: {importResult.failed.length} baris</p>
+                )}
+              </Card>
+            )}
+          </div>
+        )}
+
+      </Modal>
+    </div>
   );
 };
 

@@ -1,11 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
+import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
+import Select from '../components/ui/Select';
+import Badge from '../components/ui/Badge';
+import Modal from '../components/ui/Modal';
+import Pagination from '../components/ui/Pagination';
 import {
   ROLE_LABELS,
   ROLE_OPTIONS,
   ROLES,
   normalizeRoles
 } from '../constants/rbac';
+import {
+  buildPageParams,
+  DEFAULT_PAGE_SIZE,
+  normalizePaginatedResponse
+} from '../utils/pagination';
 
 const emptyForm = {
   username: '',
@@ -25,18 +37,33 @@ const UserAccess = () => {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [message, setMessage] = useState(null);
   const [modal, setModal] = useState({ type: null, item: null });
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    totalItems: 0,
+    totalPages: 1
+  });
 
-  const load = async (keyword = '') => {
+  const load = async (nextPage = page, keyword = search) => {
     setLoading(true);
     setError(null);
     try {
       const { data } = await api.get('/users', {
-        params: keyword ? { search: keyword } : {}
+        params: buildPageParams({
+          page: nextPage,
+          pageSize: DEFAULT_PAGE_SIZE,
+          search: keyword || undefined
+        })
       });
-      setItems(data);
+      const normalized = normalizePaginatedResponse(data);
+      setItems(normalized.items || []);
+      setPagination(normalized);
+      setPage(normalized.page);
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal memuat data user');
     } finally {
@@ -45,47 +72,41 @@ const UserAccess = () => {
   };
 
   useEffect(() => {
-    load();
+    load(1);
   }, []);
 
   const roleSet = useMemo(() => new Set(form.roles), [form.roles]);
 
-  const updateForm = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  };
+  const updateForm = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 
   const toggleRole = (role) => {
-    setForm((prev) => {
-      const nextRoles = prev.roles.includes(role)
-        ? prev.roles.filter((item) => item !== role)
+    setForm(prev => {
+      const has = prev.roles.includes(role);
+      const nextRoles = has
+        ? prev.roles.filter(r => r !== role)
         : [...prev.roles, role];
       return { ...prev, roles: nextRoles };
     });
   };
 
   const resetForm = () => {
-    setEditingId(null);
     setForm(emptyForm);
+    setEditingId(null);
   };
 
   const validateForm = () => {
-    if (!form.username.trim() || !form.email.trim() || !form.name.trim()) {
-      return 'Username, email, dan nama wajib diisi';
-    }
-    if (!isValidEmail(form.email.trim())) {
-      return 'Format email tidak valid';
-    }
-    if (!editingId && form.password.trim().length < 6) {
-      return 'Password minimal 6 karakter untuk akun baru';
-    }
-    if (!normalizeRoles(form.roles).length) {
-      return 'Minimal satu role harus dipilih';
-    }
+    if (!form.username.trim() || !form.email.trim() || !form.name.trim()) return 'Username, email, dan nama wajib diisi';
+    if (!isValidEmail(form.email)) return 'Format email tidak valid';
+    if (!editingId && (!form.password || form.password.length < 6)) return 'Password minimal 6 karakter untuk akun baru';
+    if (!normalizeRoles(form.roles).length) return 'Minimal satu role harus dipilih';
     return null;
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setMessage(null);
+
     const validationError = validateForm();
     if (validationError) {
       setError(validationError);
@@ -95,7 +116,6 @@ const UserAccess = () => {
     const payload = {
       username: form.username.trim(),
       email: form.email.trim(),
-      password: form.password,
       name: form.name.trim(),
       nip: form.nip.trim() || null,
       position: form.position.trim() || null,
@@ -103,35 +123,25 @@ const UserAccess = () => {
       isActive: form.isActive
     };
 
-    if (editingId && !payload.password) {
-      delete payload.password;
-    }
+    if (!editingId) payload.password = form.password;
+    if (editingId && form.password) payload.password = form.password;
 
-    setError(null);
     try {
       if (editingId) {
         await api.put(`/users/${editingId}`, payload);
       } else {
         await api.post('/users', payload);
       }
+      setMessage('Data user berhasil disimpan ✅');
       resetForm();
-      setModal({ type: null, item: null });
-      load(search);
+      setModal({ type: null });
+      load();
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal menyimpan user');
     }
   };
 
-  const openCreate = () => {
-    resetForm();
-    setModal({ type: 'create', item: null });
-  };
-
-  const openDetail = (item) => {
-    setModal({ type: 'detail', item });
-  };
-
-  const openEdit = (item) => {
+  const handleEdit = (item) => {
     setEditingId(item.id);
     setForm({
       username: item.username || '',
@@ -146,309 +156,226 @@ const UserAccess = () => {
     setModal({ type: 'edit', item });
   };
 
-  const openDelete = (item) => {
-    setModal({ type: 'delete', item });
-  };
+  const handleDelete = (item) => setModal({ type: 'delete', item });
 
-  const closeModal = () => {
-    setModal({ type: null, item: null });
-    resetForm();
-  };
-
-  const handleDelete = async () => {
+  const handleConfirmDelete = async () => {
     if (!modal.item) return;
     try {
       await api.delete(`/users/${modal.item.id}`);
-      setModal({ type: null, item: null });
-      load(search);
+      setModal({ type: null });
+      load();
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal menghapus user');
     }
   };
 
-  const handleSearch = async (event) => {
-    event.preventDefault();
-    load(search.trim());
+  const openCreate = () => {
+    resetForm();
+    setModal({ type: 'create' });
+  };
+
+  const openDetail = (item) => setModal({ type: 'detail', item });
+
+  const closeModal = () => {
+    setModal({ type: null });
+    if (modal.type !== 'detail') resetForm();
+  };
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    load(1, search.trim());
   };
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-8">
+      <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-900">User & Hak Akses</h1>
-          <p className="text-sm text-slate-600">Kelola akun login, status aktif, dan kombinasi role pengguna.</p>
+          <h1 className="text-4xl font-semibold text-slate-900">User & Hak Akses</h1>
+          <p className="text-slate-600 mt-1">Kelola akun login, status aktif, dan kombinasi role pengguna</p>
         </div>
-        <button
-          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-          type="button"
-          onClick={openCreate}
-        >
+        <Button onClick={openCreate} size="lg">
           + Tambah User
-        </button>
+        </Button>
       </div>
 
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      {error && <Card className="p-4 border-red-200 bg-red-50 text-red-700">{error}</Card>}
+      {message && <Card className="p-4 border-emerald-200 bg-emerald-50 text-emerald-700">{message}</Card>}
 
-      <form className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm" onSubmit={handleSearch}>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <input
+      {/* Search */}
+      <Card className="p-6">
+        <form onSubmit={handleSearch} className="flex gap-3">
+          <Input
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Cari nama, username, email, atau NIP"
-            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Cari nama, username, email, atau NIP..."
+            className="flex-1"
           />
-          <button
-            className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-            type="submit"
-          >
-            Cari
-          </button>
-        </div>
-      </form>
+          <Button type="submit">Cari</Button>
+        </form>
+      </Card>
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Daftar User</h2>
-          <span className="text-xs text-slate-500">{items.length} akun</span>
+      {/* Daftar User */}
+      <Card className="p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-lg font-semibold">Daftar User</h2>
+          <span className="text-sm text-slate-500">{pagination.totalItems} akun</span>
         </div>
-        <div className="mt-5 hidden grid-cols-[1.3fr_1fr_1.1fr_0.8fr_0.9fr] gap-4 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
-          <div>Pengguna</div>
-          <div>Username</div>
-          <div>Role</div>
-          <div>Status</div>
-          <div>Aksi</div>
-        </div>
-        <div className="mt-4 grid gap-4">
-          {items.map((item) => (
-            <div
-              key={item.id}
-              className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1.3fr_1fr_1.1fr_0.8fr_0.9fr] md:items-center"
-            >
-              <div>
-                <div className="text-sm font-semibold text-slate-900">{item.tendik?.name || item.username}</div>
-                <div className="text-xs text-slate-500">{item.email} • {item.tendik?.nip || '-'}</div>
+
+        <div className="space-y-4">
+          {items.map(item => (
+            <Card key={item.id} className="p-6 hover:shadow-md transition-shadow">
+              <div className="grid grid-cols-1 md:grid-cols-[1.3fr_1fr_1.1fr_0.8fr_0.9fr] gap-4 md:items-center">
+                <div>
+                  <div className="font-semibold text-slate-900">{item.tendik?.name || item.username}</div>
+                  <div className="text-xs text-slate-500">{item.email}</div>
+                </div>
+                <div className="text-sm text-slate-700">{item.username}</div>
+                <div className="flex flex-wrap gap-1">
+                  {item.roles.map(role => (
+                    <Badge key={role} variant="success">{ROLE_LABELS[role] || role}</Badge>
+                  ))}
+                </div>
+                <div>
+                  <Badge variant={item.isActive ? 'success' : 'default'}>
+                    {item.isActive ? 'Aktif' : 'Nonaktif'}
+                  </Badge>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => openDetail(item)}>
+                    Detail
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => handleEdit(item)}>
+                    Edit
+                  </Button>
+                  <Button variant="danger" size="sm" onClick={() => handleDelete(item)}>
+                    Hapus
+                  </Button>
+                </div>
               </div>
-              <div className="text-sm text-slate-700">{item.username}</div>
-              <div className="text-sm text-slate-700">
-                {item.roles.map((role) => ROLE_LABELS[role] || role).join(', ')}
-              </div>
-              <div>
-                <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${item.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
-                  {item.isActive ? 'Aktif' : 'Nonaktif'}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                  type="button"
-                  onClick={() => openDetail(item)}
-                >
-                  Detail
-                </button>
-                <button
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-                  type="button"
-                  onClick={() => openEdit(item)}
-                >
-                  Edit
-                </button>
-                <button
-                  className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
-                  type="button"
-                  onClick={() => openDelete(item)}
-                >
-                  Hapus
-                </button>
-              </div>
-            </div>
+            </Card>
           ))}
+
           {!items.length && !loading && (
-            <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-              Belum ada data user.
-            </div>
+            <div className="text-center py-12 text-slate-500">Belum ada data user.</div>
           )}
         </div>
-      </div>
 
-      {modal.type && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-slate-900/40" onClick={closeModal} />
-          <div className="relative w-full max-w-3xl rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
-            {modal.type === 'detail' && modal.item && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Detail User</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" type="button" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="grid gap-3 text-sm text-slate-700 sm:grid-cols-2">
-                  <div><span className="text-xs uppercase text-slate-500">Nama</span><div className="font-semibold">{modal.item.tendik?.name || '-'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Username</span><div className="font-semibold">{modal.item.username}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Email</span><div className="font-semibold">{modal.item.email}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">NIP</span><div className="font-semibold">{modal.item.tendik?.nip || '-'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Posisi</span><div className="font-semibold">{modal.item.tendik?.position || '-'}</div></div>
-                  <div><span className="text-xs uppercase text-slate-500">Status</span><div className="font-semibold">{modal.item.isActive ? 'Aktif' : 'Nonaktif'}</div></div>
-                  <div className="sm:col-span-2"><span className="text-xs uppercase text-slate-500">Role</span><div className="font-semibold">{modal.item.roles.map((role) => ROLE_LABELS[role] || role).join(', ')}</div></div>
-                </div>
-              </div>
-            )}
-
-            {(modal.type === 'create' || modal.type === 'edit') && (
-              <form className="space-y-4" onSubmit={handleSubmit}>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">
-                    {modal.type === 'edit' ? 'Edit User' : 'Tambah User'}
-                  </h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" type="button" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="text-sm font-medium text-slate-700">
-                    Username
-                    <input
-                      value={form.username}
-                      onChange={(event) => updateForm('username', event.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Email
-                    <input
-                      type="email"
-                      value={form.email}
-                      onChange={(event) => updateForm('email', event.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Password
-                    <input
-                      type="password"
-                      value={form.password}
-                      onChange={(event) => updateForm('password', event.target.value)}
-                      placeholder={editingId ? 'Kosongkan jika tidak diubah' : 'Minimal 6 karakter'}
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Nama
-                    <input
-                      value={form.name}
-                      onChange={(event) => updateForm('name', event.target.value)}
-                      required
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    NIP
-                    <input
-                      value={form.nip}
-                      onChange={(event) => updateForm('nip', event.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-700">
-                    Posisi
-                    <input
-                      value={form.position}
-                      onChange={(event) => updateForm('position', event.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 sm:col-span-2">
-                    <input
-                      type="checkbox"
-                      checked={form.isActive}
-                      onChange={(event) => updateForm('isActive', event.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                    />
-                    Akun aktif
-                  </label>
-                </div>
-
-                <div>
-                  <div className="text-sm font-medium text-slate-700">Role</div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    {ROLE_OPTIONS.map((role) => (
-                      <label
-                        key={role.value}
-                        className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition ${
-                          roleSet.has(role.value)
-                            ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                            : 'border-slate-200 bg-white text-slate-700'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={roleSet.has(role.value)}
-                          onChange={() => toggleRole(role.value)}
-                          className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                        />
-                        {role.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-3">
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                  <button
-                    className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700"
-                    type="submit"
-                  >
-                    Simpan
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {modal.type === 'delete' && modal.item && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-slate-900">Hapus User</h3>
-                  <button className="text-sm text-slate-500 hover:text-slate-700" type="button" onClick={closeModal}>
-                    Tutup
-                  </button>
-                </div>
-                <p className="text-sm text-slate-600">
-                  Hapus akun <span className="font-semibold text-slate-900">{modal.item.username}</span> dari sistem?
-                </p>
-                <div className="flex justify-end gap-3">
-                  <button
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
-                    type="button"
-                    onClick={closeModal}
-                  >
-                    Batal
-                  </button>
-                  <button
-                    className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
-                    type="button"
-                    onClick={handleDelete}
-                  >
-                    Hapus
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+        <div className="mt-8 flex justify-center">
+          <Pagination
+            page={pagination.page}
+            totalPages={pagination.totalPages}
+            totalItems={pagination.totalItems}
+            pageSize={pagination.pageSize}
+            onPageChange={(nextPage) => load(nextPage)}
+          />
         </div>
-      )}
-    </section>
+      </Card>
+
+      {/* Modal */}
+      <Modal
+        isOpen={!!modal.type}
+        onClose={closeModal}
+        title={
+          modal.type === 'create' ? 'Tambah User' :
+          modal.type === 'edit' ? 'Edit User' :
+          modal.type === 'detail' ? 'Detail User' : 'Hapus User'
+        }
+      >
+        {/* Create & Edit Form */}
+        {(modal.type === 'create' || modal.type === 'edit') && (
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Username</label>
+                <Input value={form.username} onChange={e => updateForm('username', e.target.value)} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
+                <Input type="email" value={form.email} onChange={e => updateForm('email', e.target.value)} required />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Nama Lengkap</label>
+                <Input value={form.name} onChange={e => updateForm('name', e.target.value)} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">NIP</label>
+                <Input value={form.nip} onChange={e => updateForm('nip', e.target.value)} />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Posisi / Jabatan</label>
+              <Input value={form.position} onChange={e => updateForm('position', e.target.value)} />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Password {editingId ? '(kosongkan jika tidak diubah)' : ''}</label>
+              <Input type="password" value={form.password} onChange={e => updateForm('password', e.target.value)} />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <input type="checkbox" checked={form.isActive} onChange={e => updateForm('isActive', e.target.checked)} />
+              <span className="text-sm text-slate-700">Akun aktif</span>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-3">Role</label>
+              <div className="grid grid-cols-2 gap-3">
+                {ROLE_OPTIONS.map(role => (
+                  <label key={role.value} className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={roleSet.has(role.value)} onChange={() => toggleRole(role.value)} />
+                    <span>{role.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <Button type="submit" variant="primary" size="lg" className="flex-1">
+                {editingId ? 'Simpan Perubahan' : 'Tambah User'}
+              </Button>
+              <Button type="button" variant="secondary" size="lg" onClick={closeModal}>
+                Batal
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {/* Detail */}
+        {modal.type === 'detail' && modal.item && (
+          <div className="space-y-6 text-sm">
+            <div className="grid grid-cols-2 gap-4">
+              <div><span className="text-xs uppercase text-slate-500">Nama</span><p className="font-semibold">{modal.item.tendik?.name || modal.item.username}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Username</span><p className="font-semibold">{modal.item.username}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Email</span><p className="font-semibold">{modal.item.email}</p></div>
+              <div><span className="text-xs uppercase text-slate-500">Status</span><p className="font-semibold">{modal.item.isActive ? 'Aktif' : 'Nonaktif'}</p></div>
+            </div>
+            <div>
+              <span className="text-xs uppercase text-slate-500">Role</span>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {modal.item.roles.map(role => (
+                  <Badge key={role} variant="success">{ROLE_LABELS[role] || role}</Badge>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete */}
+        {modal.type === 'delete' && modal.item && (
+          <div className="space-y-6">
+            <p className="text-slate-600">Yakin ingin menghapus user <span className="font-semibold">{modal.item.username}</span>?</p>
+            <div className="flex gap-3">
+              <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">Hapus</Button>
+              <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
   );
 };
 

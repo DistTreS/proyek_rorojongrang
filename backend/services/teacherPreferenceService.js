@@ -1,5 +1,6 @@
 const { Op } = require('sequelize');
 const { TeacherPreference, AcademicPeriod, Tendik } = require('../models');
+const { paginateItems, parsePagination } = require('../utils/pagination');
 const { serviceError } = require('../utils/serviceError');
 const {
   PREFERENCE_TYPES,
@@ -100,7 +101,9 @@ const validateTeacherPreferenceInput = async (
   };
 };
 
-const listTeacherPreferences = async ({ periodId, teacherId, preferenceType } = {}) => {
+const listTeacherPreferences = async (query = {}) => {
+  const pagination = parsePagination(query);
+  const { periodId, teacherId, preferenceType } = query;
   const where = {};
   if (periodId) where.periodId = Number(periodId);
   if (teacherId) where.teacherId = Number(teacherId);
@@ -112,7 +115,7 @@ const listTeacherPreferences = async ({ periodId, teacherId, preferenceType } = 
     order: [['periodId', 'DESC'], ['dayOfWeek', 'ASC'], ['startTime', 'ASC']]
   });
 
-  return preferences.map(formatTeacherPreference);
+  return paginateItems(preferences.map(formatTeacherPreference), pagination);
 };
 
 const getTeacherPreferenceDetail = async (id) => {

@@ -1,5 +1,6 @@
 const { Op } = require('sequelize');
 const { Subject, AcademicPeriod, TeachingAssignment } = require('../models');
+const { paginateItems, parsePagination } = require('../utils/pagination');
 const { serviceError } = require('../utils/serviceError');
 const {
   SUBJECT_TYPES,
@@ -66,7 +67,9 @@ const validateSubjectInput = async ({ code, name, type, periodId }, { excludeId 
   };
 };
 
-const listSubjects = async ({ periodId, search } = {}) => {
+const listSubjects = async (query = {}) => {
+  const pagination = parsePagination(query);
+  const { periodId, search } = query;
   const where = {};
   if (periodId) {
     where.periodId = Number(periodId);
@@ -85,7 +88,7 @@ const listSubjects = async ({ periodId, search } = {}) => {
     order: [['periodId', 'DESC'], ['name', 'ASC']]
   });
 
-  return subjects.map(formatSubject);
+  return paginateItems(subjects.map(formatSubject), pagination);
 };
 
 const getSubjectDetail = async (id) => {

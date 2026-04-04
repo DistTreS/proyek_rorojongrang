@@ -1,5 +1,10 @@
 import { useState } from 'react';
 import api from '../services/api';
+import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
+import Select from '../components/ui/Select';
+import Badge from '../components/ui/Badge';
 
 const reportTypes = [
   { value: 'global', label: 'Global' },
@@ -19,10 +24,11 @@ const Laporan = () => {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     setError(null);
     setLoading(true);
+
     try {
       const { data } = await api.get(`/reports/${type}`, {
         params: { dateFrom, dateTo }
@@ -38,127 +44,117 @@ const Laporan = () => {
   const renderGlobal = () => {
     if (!data) return null;
     return (
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">Ringkasan</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-            <div className="text-2xl font-semibold text-slate-900">{data.summary?.hadir || 0}</div>
-            <div className="text-xs uppercase tracking-wide text-slate-500">Hadir</div>
+      <Card className="p-6">
+        <h2 className="text-lg font-semibold mb-4">Ringkasan Laporan</h2>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="bg-emerald-50 rounded-3xl p-5 text-center">
+            <div className="text-4xl font-semibold text-emerald-600">{data.summary?.hadir || 0}</div>
+            <div className="text-sm text-emerald-700 mt-1">Hadir</div>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-            <div className="text-2xl font-semibold text-slate-900">{data.summary?.izin || 0}</div>
-            <div className="text-xs uppercase tracking-wide text-slate-500">Izin</div>
+          <div className="bg-amber-50 rounded-3xl p-5 text-center">
+            <div className="text-4xl font-semibold text-amber-600">{data.summary?.izin || 0}</div>
+            <div className="text-sm text-amber-700 mt-1">Izin</div>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-            <div className="text-2xl font-semibold text-slate-900">{data.summary?.sakit || 0}</div>
-            <div className="text-xs uppercase tracking-wide text-slate-500">Sakit</div>
+          <div className="bg-blue-50 rounded-3xl p-5 text-center">
+            <div className="text-4xl font-semibold text-blue-600">{data.summary?.sakit || 0}</div>
+            <div className="text-sm text-blue-700 mt-1">Sakit</div>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-            <div className="text-2xl font-semibold text-slate-900">{data.summary?.alpa || 0}</div>
-            <div className="text-xs uppercase tracking-wide text-slate-500">Alpa</div>
+          <div className="bg-rose-50 rounded-3xl p-5 text-center">
+            <div className="text-4xl font-semibold text-rose-600">{data.summary?.alpa || 0}</div>
+            <div className="text-sm text-rose-700 mt-1">Alpa</div>
           </div>
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4">
-            <div className="text-2xl font-semibold text-emerald-700">{data.summary?.total || 0}</div>
-            <div className="text-xs uppercase tracking-wide text-emerald-700">Total</div>
+          <div className="bg-neutral-50 rounded-3xl p-5 text-center">
+            <div className="text-4xl font-semibold">{data.summary?.total || 0}</div>
+            <div className="text-sm text-neutral-600 mt-1">Total</div>
           </div>
         </div>
-      </div>
+      </Card>
     );
   };
 
   const renderTable = () => {
     if (!Array.isArray(data)) return null;
     return (
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mt-1 hidden grid-cols-[1.6fr_repeat(5,0.6fr)] gap-4 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
-          <div>Nama</div>
-          <div>Hadir</div>
-          <div>Izin</div>
-          <div>Sakit</div>
-          <div>Alpa</div>
-          <div>Total</div>
+      <Card className="p-6">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b text-xs font-semibold text-slate-500">
+                <th className="py-4 text-left">Nama / Keterangan</th>
+                <th className="py-4 text-center">Hadir</th>
+                <th className="py-4 text-center">Izin</th>
+                <th className="py-4 text-center">Sakit</th>
+                <th className="py-4 text-center">Alpa</th>
+                <th className="py-4 text-center">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((row, index) => (
+                <tr key={index} className="border-b hover:bg-neutral-50">
+                  <td className="py-4 font-medium">{row.label || row.student?.name || row.rombel?.name || row.date || row.month}</td>
+                  <td className="py-4 text-center">{row.hadir}</td>
+                  <td className="py-4 text-center">{row.izin}</td>
+                  <td className="py-4 text-center">{row.sakit}</td>
+                  <td className="py-4 text-center">{row.alpa}</td>
+                  <td className="py-4 text-center font-semibold">{row.total}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        <div className="mt-4 grid gap-4">
-          {data.map((row, index) => (
-            <div
-              key={index}
-              className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1.6fr_repeat(5,0.6fr)] md:items-center"
-            >
-              <div className="text-sm font-semibold text-slate-900">
-                {row.label || row.student?.name || row.rombel?.name || row.timeSlot?.label || row.date || row.month}
-              </div>
-              <div className="text-sm text-slate-700">{row.hadir}</div>
-              <div className="text-sm text-slate-700">{row.izin}</div>
-              <div className="text-sm text-slate-700">{row.sakit}</div>
-              <div className="text-sm text-slate-700">{row.alpa}</div>
-              <div className="text-sm font-semibold text-slate-900">{row.total}</div>
-            </div>
-          ))}
-        </div>
-      </div>
+      </Card>
     );
   };
 
   return (
-    <section className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-semibold text-slate-900">Laporan Absensi</h1>
-        <p className="text-sm text-slate-600">Global, per siswa, per rombel, per jam pelajaran, harian, bulanan, semester.</p>
+        <h1 className="text-4xl font-semibold text-slate-900">Laporan Absensi</h1>
+        <p className="text-slate-600 mt-1">Global, per siswa, per rombel, harian, bulanan, dan semester</p>
       </div>
 
-      <form className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm" onSubmit={handleSubmit}>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <label className="text-sm font-medium text-slate-700">
-            Jenis Laporan
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-            >
-              {reportTypes.map((item) => (
+      <Card className="p-6">
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Jenis Laporan</label>
+            <Select value={type} onChange={(e) => setType(e.target.value)}>
+              {reportTypes.map(item => (
                 <option key={item.value} value={item.value}>{item.label}</option>
               ))}
-            </select>
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            Dari
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              required
-              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            Sampai
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              required
-              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-200"
-            />
-          </label>
-        </div>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <button
-            className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700 disabled:opacity-60"
-            type="submit"
-            disabled={loading}
-          >
-            {loading ? 'Memuat...' : 'Tampilkan'}
-          </button>
-        </div>
-      </form>
+            </Select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Dari Tanggal</label>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} required />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Sampai Tanggal</label>
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} required />
+          </div>
+
+          <div className="md:col-span-3">
+            <Button type="submit" size="lg" disabled={loading} className="w-full md:w-auto">
+              {loading ? 'Memuat Laporan...' : 'Tampilkan Laporan'}
+            </Button>
+          </div>
+        </form>
+      </Card>
 
       {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <Card className="p-4 border-red-200 bg-red-50 text-red-700">
           {error}
-        </div>
+        </Card>
       )}
-      {type === 'global' ? renderGlobal() : renderTable()}
-    </section>
+
+      {/* Hasil Laporan */}
+      {data && (
+        <>
+          {type === 'global' ? renderGlobal() : renderTable()}
+        </>
+      )}
+    </div>
   );
 };
 

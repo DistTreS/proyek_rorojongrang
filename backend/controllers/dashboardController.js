@@ -1,6 +1,6 @@
 const { Op } = require('sequelize');
 const { Attendance, Student, Rombel, TeachingAssignment, AcademicPeriod } = require('../models');
-const { getTeacherContext, isGuruUser } = require('../services/teacherOperationalService');
+const { getTeacherContext, isGuruScopedUser } = require('../services/teacherOperationalService');
 
 const overview = async (req, res) => {
   const { periodId, dateFrom, dateTo } = req.query;
@@ -15,10 +15,10 @@ const overview = async (req, res) => {
   let studentCount = 0;
   let rombelCount = 0;
   let assignmentCount = 0;
-  const isGuru = isGuruUser(req.user);
+  const isGuru = isGuruScopedUser(req.user);
 
   if (isGuru) {
-    const teacher = await getTeacherContext(req.user);
+    const teacher = await getTeacherContext(req.user, { scopedOnly: true });
     if (!teacher) {
       studentCount = 0;
       rombelCount = 0;
@@ -70,7 +70,7 @@ const overview = async (req, res) => {
     date: { [Op.between]: [start, end] }
   };
   if (isGuru) {
-    const teacher = await getTeacherContext(req.user);
+    const teacher = await getTeacherContext(req.user, { scopedOnly: true });
     attendanceWhere[Op.or] = teacher
       ? [
         { teacherId: teacher.id },

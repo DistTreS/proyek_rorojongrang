@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize');
 const { User, Role, Tendik, sequelize } = require('../models');
+const { paginateItems, parsePagination } = require('../utils/pagination');
 const {
   ROLE_LABELS,
   ROLES,
@@ -10,6 +11,8 @@ const {
   normalizeRoles
 } = require('../config/rbac');
 const { serviceError } = require('../utils/serviceError');
+
+const DEFAULT_AVATAR_URL = '/uploads/avatars/default-avatar.svg';
 
 const resolveRoles = (roles) => {
   const normalizedRoles = normalizeRoles(roles);
@@ -26,6 +29,7 @@ const formatUserRecord = (user) => {
     id: user.id,
     username: user.username,
     email: user.email,
+    avatarUrl: user.avatarUrl || DEFAULT_AVATAR_URL,
     isActive: user.isActive,
     roles,
     primaryRole,
@@ -89,7 +93,9 @@ const loadUserWithRelations = async (id) => {
   });
 };
 
-const listAdminUsers = async ({ search } = {}) => {
+const listAdminUsers = async (query = {}) => {
+  const pagination = parsePagination(query);
+  const { search } = query;
   const users = await User.findAll({
     include: [{ model: Role }, { model: Tendik }],
     order: [['username', 'ASC']]
@@ -105,7 +111,7 @@ const listAdminUsers = async ({ search } = {}) => {
     ))
     : users;
 
-  return filtered.map(formatUserRecord);
+  return paginateItems(filtered.map(formatUserRecord), pagination);
 };
 
 const getAdminUserDetail = async (id) => {
@@ -139,6 +145,7 @@ const createAdminUser = async (payload) => {
       username,
       email,
       passwordHash: hash,
+      avatarUrl: payload.avatarUrl ? String(payload.avatarUrl) : null,
       isActive: payload.isActive !== undefined ? Boolean(payload.isActive) : true
     }, { transaction });
 
@@ -177,6 +184,7 @@ const updateAdminUser = async (id, payload) => {
     if (payload.username !== undefined) user.username = username;
     if (payload.email !== undefined) user.email = email;
     if (typeof payload.isActive === 'boolean') user.isActive = payload.isActive;
+    if (payload.avatarUrl !== undefined) user.avatarUrl = payload.avatarUrl ? String(payload.avatarUrl) : null;
     if (payload.password) {
       user.passwordHash = await bcrypt.hash(String(payload.password), 10);
     }
@@ -252,6 +260,9 @@ const updateMyProfile = async (id, payload) => {
   try {
     user.username = username;
     user.email = email;
+    if (payload.avatarUrl !== undefined) {
+      user.avatarUrl = payload.avatarUrl ? String(payload.avatarUrl) : null;
+    }
     if (payload.password) {
       user.passwordHash = await bcrypt.hash(String(payload.password), 10);
     }

@@ -9,9 +9,8 @@ const { handleControllerError } = require('../utils/controllerUtils');
 const list = async (req, res) => {
   try {
     const data = await listStudentNotes({
-      user: req.user,
-      studentId: req.query.studentId,
-      category: req.query.category
+      ...req.query,
+      user: req.user
     });
     return res.json(data);
   } catch (err) {

@@ -1,5 +1,6 @@
 const { Op } = require('sequelize');
 const { sequelize, Rombel, AcademicPeriod, Student, TeachingAssignment, Schedule } = require('../models');
+const { paginateItems, parsePagination } = require('../utils/pagination');
 const { serviceError } = require('../utils/serviceError');
 const {
   ROMBEL_TYPES,
@@ -55,7 +56,9 @@ const validateRombelInput = async ({ name, gradeLevel, type, periodId }, { exclu
   };
 };
 
-const listRombels = async ({ periodId, user } = {}) => {
+const listRombels = async (query = {}) => {
+  const pagination = parsePagination(query);
+  const { periodId, user } = query;
   const where = {};
   if (periodId) {
     where.periodId = Number(periodId);
@@ -64,7 +67,7 @@ const listRombels = async ({ periodId, user } = {}) => {
   const accessibleRombelIds = await getAccessibleRombelIds(user, { periodId });
   if (accessibleRombelIds !== null) {
     if (!accessibleRombelIds.length) {
-      return [];
+      return paginateItems([], pagination);
     }
     where.id = { [Op.in]: accessibleRombelIds };
   }
@@ -75,7 +78,7 @@ const listRombels = async ({ periodId, user } = {}) => {
     order: [['periodId', 'DESC'], ['name', 'ASC']]
   });
 
-  return rombels.map(formatRombel);
+  return paginateItems(rombels.map(formatRombel), pagination);
 };
 
 const getRombelDetail = async (id, { user } = {}) => {
