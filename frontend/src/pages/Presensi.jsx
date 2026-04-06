@@ -4,7 +4,6 @@ import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
-import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Pagination from '../components/ui/Pagination';
 import {
@@ -29,9 +28,17 @@ const dayOptions = [
   { value: 6, label: 'Sabtu' }
 ];
 
+const meetingModeOptions = [
+  { value: 'scheduled', label: 'Berdasarkan Jadwal Resmi' },
+  { value: 'manual', label: 'Pertemuan Manual (Di Luar Jadwal)' }
+];
+
 const emptyMeetingForm = {
+  mode: 'scheduled',
   date: '',
   teachingAssignmentId: '',
+  rombelId: '',
+  subjectId: '',
   meetingNote: '',
   timeSlotIds: []
 };
@@ -52,6 +59,11 @@ const Presensi = () => {
   const [detail, setDetail] = useState(null);
   const [saving, setSaving] = useState(false);
   const [uploadingId, setUploadingId] = useState(null);
+  const [manualRombelOptions, setManualRombelOptions] = useState([]);
+  const [manualSubjectOptions, setManualSubjectOptions] = useState([]);
+  const [manualOptionsLoading, setManualOptionsLoading] = useState(false);
+  const [manualSlotOptions, setManualSlotOptions] = useState([]);
+  const [manualSlotLoading, setManualSlotLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({
     page: 1,
@@ -93,8 +105,23 @@ const Presensi = () => {
     }
   };
 
+  const loadManualOptions = async () => {
+    setManualOptionsLoading(true);
+    try {
+      const { data } = await api.get('/attendance/manual-options');
+      setManualRombelOptions(Array.isArray(data?.rombels) ? data.rombels : []);
+      setManualSubjectOptions(Array.isArray(data?.subjects) ? data.subjects : []);
+    } catch {
+      setManualRombelOptions([]);
+      setManualSubjectOptions([]);
+    } finally {
+      setManualOptionsLoading(false);
+    }
+  };
+
   useEffect(() => {
     load(1);
+    loadManualOptions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -109,6 +136,7 @@ const Presensi = () => {
 
   const openCreate = () => {
     resetMeetingForm();
+    loadManualOptions();
     setModal({ type: 'create' });
   };
 
@@ -145,15 +173,29 @@ const Presensi = () => {
     setError(null);
     setSaving(true);
     try {
+      const isManualMeeting = meetingForm.mode === 'manual';
       const assignment = assignmentMap.get(Number(meetingForm.teachingAssignmentId));
-      if (!assignment) {
+
+      if (!meetingForm.timeSlotIds.length) {
+        setError('Pilih minimal satu jam pelajaran');
+        return;
+      }
+
+      if (!isManualMeeting && !assignment) {
         setError('Pilih jadwal mengajar terlebih dahulu');
         return;
       }
+
+      if (isManualMeeting && (!meetingForm.rombelId || !meetingForm.subjectId)) {
+        setError('Rombel dan mapel wajib dipilih untuk pertemuan manual');
+        return;
+      }
+
       const payload = {
+        mode: meetingForm.mode,
         date: meetingForm.date,
-        rombelId: assignment.rombel?.id || null,
-        subjectId: assignment.subject?.id || null,
+        rombelId: isManualMeeting ? Number(meetingForm.rombelId) : (assignment.rombel?.id || null),
+        subjectId: isManualMeeting ? Number(meetingForm.subjectId) : (assignment.subject?.id || null),
         meetingNote: meetingForm.meetingNote.trim() || null,
         timeSlotIds: meetingForm.timeSlotIds
       };
@@ -247,6 +289,11 @@ const Presensi = () => {
 
   const selectedAssignment = useMemo(() => assignmentMap.get(Number(meetingForm.teachingAssignmentId)) || null, [assignmentMap, meetingForm.teachingAssignmentId]);
 
+  const selectedManualRombel = useMemo(
+    () => manualRombelOptions.find((rombel) => String(rombel.id) === String(meetingForm.rombelId)) || null,
+    [manualRombelOptions, meetingForm.rombelId]
+  );
+
   const selectedDay = useMemo(() => {
     if (!meetingForm.date) return null;
     const date = new Date(`${meetingForm.date}T00:00:00`);
@@ -267,14 +314,63 @@ const Presensi = () => {
     ).values()];
   }, [teachingSchedule, selectedAssignment, selectedDay]);
 
+  const manualSlots = useMemo(() => {
+    return manualSlotOptions;
+  }, [manualSlotOptions]);
+
+  const activeSlots = meetingForm.mode === 'manual' ? manualSlots : currentSlots;
+
+  useEffect(() => {
+    let active = true;
+
+    const loadManualSlots = async () => {
+      if (meetingForm.mode !== 'manual') {
+        setManualSlotOptions([]);
+        return;
+      }
+
+      if (!meetingForm.date || !meetingForm.rombelId) {
+        setManualSlotOptions([]);
+        return;
+      }
+
+      setManualSlotLoading(true);
+      try {
+        const { data } = await api.get('/attendance/meeting-slots', {
+          params: {
+            date: meetingForm.date,
+            rombelId: meetingForm.rombelId
+          }
+        });
+        if (active) {
+          setManualSlotOptions(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        if (active) {
+          setManualSlotOptions([]);
+          setError(err.response?.data?.message || 'Gagal memuat jam pelajaran manual');
+        }
+      } finally {
+        if (active) {
+          setManualSlotLoading(false);
+        }
+      }
+    };
+
+    loadManualSlots();
+    return () => {
+      active = false;
+    };
+  }, [meetingForm.mode, meetingForm.date, meetingForm.rombelId]);
+
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-4xl font-semibold text-slate-900">Presensi</h1>
-          <p className="text-slate-600 mt-1">Buat pertemuan dan kelola kehadiran siswa berdasarkan jadwal mengajar resmi</p>
+          <p className="text-slate-600 mt-1">Buat pertemuan dari jadwal resmi atau manual, lalu kelola kehadiran siswa</p>
         </div>
-        <Button onClick={openCreate} size="lg" disabled={!teachingAssignments.length}>
+        <Button onClick={openCreate} size="lg">
           + Buat Pertemuan
         </Button>
       </div>
@@ -287,7 +383,7 @@ const Presensi = () => {
 
       {!loading && !teachingAssignments.length && (
         <Card className="p-4 border-amber-200 bg-amber-50 text-amber-800">
-          Anda belum memiliki jadwal mengajar approved. Presensi baru bisa dibuat setelah jadwal resmi tersedia.
+          Jadwal mengajar approved belum ditemukan. Pertemuan manual hanya bisa dibuat jika data rombel/mapel/slot sudah tersedia.
         </Card>
       )}
 
@@ -320,7 +416,7 @@ const Presensi = () => {
                 <div className="text-xs text-slate-600">
                   H:{meeting.statusSummary?.hadir || 0} I:{meeting.statusSummary?.izin || 0} S:{meeting.statusSummary?.sakit || 0} A:{meeting.statusSummary?.alpa || 0}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" size="sm" onClick={() => openDetail(meeting)}>
                     Detail
                   </Button>
@@ -361,32 +457,140 @@ const Presensi = () => {
       >
         {modal.type === 'create' && (
           <form onSubmit={handleCreateMeeting} className="space-y-6">
-            {/* Form create meeting - full logic dari kode asli */}
-            <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Mode Pertemuan</label>
+              <Select
+                value={meetingForm.mode}
+                onChange={(e) => setMeetingForm((prev) => ({
+                  ...prev,
+                  mode: e.target.value,
+                  teachingAssignmentId: '',
+                  rombelId: '',
+                  subjectId: '',
+                  timeSlotIds: []
+                }))}
+              >
+                {meetingModeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Tanggal</label>
-                <Input type="date" value={meetingForm.date} onChange={(e) => updateMeetingForm('date', e.target.value)} required />
+                <Input
+                  type="date"
+                  value={meetingForm.date}
+                  onChange={(e) => setMeetingForm((prev) => ({ ...prev, date: e.target.value, timeSlotIds: [] }))}
+                  required
+                />
               </div>
+              {meetingForm.mode === 'scheduled' ? (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Jadwal Mengajar</label>
+                  <Select
+                    value={meetingForm.teachingAssignmentId}
+                    onChange={(e) => setMeetingForm((prev) => ({
+                      ...prev,
+                      teachingAssignmentId: e.target.value,
+                      timeSlotIds: []
+                    }))}
+                    required
+                  >
+                    <option value="">Pilih pengampu</option>
+                    {teachingAssignments.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {formatRombelLabel(a.rombel)} • {a.subject?.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Rombel</label>
+                  <Select
+                    value={meetingForm.rombelId}
+                    onChange={(e) => setMeetingForm((prev) => ({
+                      ...prev,
+                      rombelId: e.target.value,
+                      timeSlotIds: []
+                    }))}
+                    required
+                  >
+                    <option value="">Pilih rombel</option>
+                    {manualRombelOptions.map((rombel) => (
+                      <option key={rombel.id} value={rombel.id}>
+                        {formatRombelLabel(rombel)}
+                      </option>
+                    ))}
+                  </Select>
+                  {manualOptionsLoading && (
+                    <p className="mt-1 text-xs text-slate-500">Memuat opsi rombel...</p>
+                  )}
+                  {!manualOptionsLoading && !manualRombelOptions.length && (
+                    <p className="mt-1 text-xs text-amber-700">
+                      Belum ada rombel dari pengampu Anda. Pastikan data pengampu guru sudah tersedia.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {meetingForm.mode === 'manual' && (
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Jadwal Mengajar</label>
-                <Select value={meetingForm.teachingAssignmentId} onChange={(e) => updateMeetingForm('teachingAssignmentId', e.target.value)} required>
-                  <option value="">Pilih pengampu</option>
-                  {teachingAssignments.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {formatRombelLabel(a.rombel)} • {a.subject?.name}
+                <label className="block text-sm font-medium text-slate-700 mb-2">Mata Pelajaran</label>
+                <Select
+                  value={meetingForm.subjectId}
+                  onChange={(e) => updateMeetingForm('subjectId', e.target.value)}
+                  required
+                >
+                  <option value="">Pilih mapel</option>
+                  {manualSubjectOptions.map((subject) => (
+                    <option key={subject.id} value={subject.id}>
+                      {subject.name}
                     </option>
                   ))}
                 </Select>
+                {manualOptionsLoading && (
+                  <p className="mt-1 text-xs text-slate-500">Memuat opsi mapel...</p>
+                )}
+                {!manualOptionsLoading && !manualSubjectOptions.length && (
+                  <p className="mt-1 text-xs text-amber-700">
+                    Belum ada mapel dari pengampu Anda. Pastikan data pengampu guru sudah tersedia.
+                  </p>
+                )}
               </div>
-            </div>
+            )}
 
-            {selectedAssignment && (
+            {meetingForm.mode === 'scheduled' && selectedAssignment && (
               <Card className="p-4 bg-slate-50">
                 <div className="text-xs font-semibold uppercase text-slate-500 mb-2">Ringkasan Pengampu</div>
-                <div className="grid grid-cols-3 gap-4 text-sm">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                   <div>Rombel: <span className="font-medium">{formatRombelLabel(selectedAssignment.rombel)}</span></div>
                   <div>Mapel: <span className="font-medium">{selectedAssignment.subject?.name}</span></div>
                   <div>Periode: <span className="font-medium">{selectedAssignment.periodName}</span></div>
+                </div>
+              </Card>
+            )}
+
+            {meetingForm.mode === 'manual' && (
+              <Card className="p-4 bg-slate-50">
+                <div className="text-xs font-semibold uppercase text-slate-500 mb-2">Ringkasan Pertemuan Manual</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                  <div>
+                    Rombel:
+                    <span className="font-medium ml-1">
+                      {selectedManualRombel?.name || '-'}
+                    </span>
+                  </div>
+                  <div>
+                    Mapel:
+                    <span className="font-medium ml-1">
+                      {manualSubjectOptions.find((subject) => String(subject.id) === String(meetingForm.subjectId))?.name || '-'}
+                    </span>
+                  </div>
+                  <div>Mode: <span className="font-medium">Manual</span></div>
                 </div>
               </Card>
             )}
@@ -398,8 +602,11 @@ const Presensi = () => {
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Jam Pelajaran (boleh lebih dari satu)</label>
-              <div className="grid grid-cols-2 gap-3 max-h-60 overflow-auto p-3 border border-slate-200 rounded-2xl">
-                {currentSlots.map((slot) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-60 overflow-auto p-3 border border-slate-200 rounded-2xl">
+                {meetingForm.mode === 'manual' && manualSlotLoading && (
+                  <p className="text-sm text-slate-500 col-span-full">Memuat jam pelajaran...</p>
+                )}
+                {activeSlots.map((slot) => (
                   <label key={slot.id} className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={meetingForm.timeSlotIds.includes(slot.id)} onChange={() => toggleSlot(slot.id)} />
                     <span className="text-sm">
@@ -407,10 +614,20 @@ const Presensi = () => {
                     </span>
                   </label>
                 ))}
+                {!manualSlotLoading && meetingForm.mode === 'manual' && (!meetingForm.date || !meetingForm.rombelId) && (
+                  <p className="text-sm text-slate-500 col-span-full">
+                    Pilih tanggal dan rombel terlebih dahulu untuk menampilkan semua jam pelajaran di hari tersebut.
+                  </p>
+                )}
+                {!manualSlotLoading && !activeSlots.length && !(meetingForm.mode === 'manual' && (!meetingForm.date || !meetingForm.rombelId)) && (
+                  <p className="text-sm text-slate-500 col-span-full">
+                    Tidak ada jam pelajaran untuk hari ini. Silakan pilih tanggal lain.
+                  </p>
+                )}
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button type="submit" variant="primary" size="lg" disabled={saving} className="flex-1">
                 {saving ? 'Menyimpan...' : 'Buat Pertemuan'}
               </Button>
@@ -424,7 +641,7 @@ const Presensi = () => {
         {modal.type === 'detail' && detail && (
           <div className="space-y-6">
             {/* Detail header */}
-            <div className="grid grid-cols-2 gap-y-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 text-sm">
               <div><span className="text-xs uppercase text-slate-500">Tanggal</span><p className="font-semibold">{detail.date}</p></div>
               <div><span className="text-xs uppercase text-slate-500">Rombel</span><p className="font-semibold">{formatRombelLabel(detail.rombel)}</p></div>
               <div><span className="text-xs uppercase text-slate-500">Mapel</span><p className="font-semibold">{detail.subject?.name}</p></div>
@@ -463,7 +680,7 @@ const Presensi = () => {
               </div>
             </Card>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button onClick={handleUpdateEntries} disabled={saving} className="flex-1">
                 {saving ? 'Menyimpan...' : 'Simpan Presensi'}
               </Button>

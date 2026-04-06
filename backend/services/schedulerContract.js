@@ -35,7 +35,8 @@ const buildSchedulerRequestPayload = ({
   assignments,
   timeSlots,
   constraints,
-  teacherPreferences
+  teacherPreferences,
+  studentEnrollments
 }) => ({
   period_id: Number(periodId),
   teaching_assignments: (assignments || []).map((item) => ({
@@ -44,7 +45,10 @@ const buildSchedulerRequestPayload = ({
     subject_id: item.subjectId,
     rombel_id: item.rombelId,
     period_id: item.periodId,
-    weekly_hours: item.weeklyHours
+    weekly_hours: item.weeklyHours,
+    grade_level: item.Rombel?.gradeLevel ?? null,
+    subject_type: item.Subject?.type || null,
+    rombel_type: item.Rombel?.type || null
   })),
   time_slots: (timeSlots || []).map((slot) => ({
     id: slot.id,
@@ -64,6 +68,10 @@ const buildSchedulerRequestPayload = ({
     end_time: item.endTime,
     preference_type: item.preferenceType,
     notes: item.notes || null
+  })),
+  student_enrollments: (studentEnrollments || []).map((item) => ({
+    student_id: item.studentId,
+    rombel_ids: item.rombelIds
   }))
 });
 
@@ -89,6 +97,7 @@ const buildRequestMeta = (requestPayload) => ({
   teachingAssignments: requestPayload.teaching_assignments.length,
   timeSlots: requestPayload.time_slots.length,
   teacherPreferences: requestPayload.teacher_preferences.length,
+  studentEnrollments: requestPayload.student_enrollments.length,
   hasConstraints: Object.keys(requestPayload.constraints || {}).length > 0
 });
 
@@ -103,6 +112,7 @@ const normalizeSchedulerSummary = (summary, requestPayload, generatedItems, engi
     totalTeachingAssignments: Number(safeSummary.total_teaching_assignments ?? requestPayload.teaching_assignments.length),
     totalTimeSlots: Number(safeSummary.total_time_slots ?? requestPayload.time_slots.length),
     totalTeacherPreferences: Number(safeSummary.total_teacher_preferences ?? requestPayload.teacher_preferences.length),
+    totalStudentEnrollments: Number(safeSummary.total_student_enrollments ?? requestPayload.student_enrollments.length),
     generatedItems,
     requestedWeeklyHours,
     feasible: Boolean(safeSummary.feasible ?? (generatedItems > 0)),

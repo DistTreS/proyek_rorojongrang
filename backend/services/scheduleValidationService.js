@@ -5,12 +5,29 @@ const {
   TimeSlot,
   TeachingAssignment,
   TeacherPreference,
+  Student,
   Tendik,
   User,
   Role
 } = require('../models');
 const { ROLES, getUserRoles } = require('../config/rbac');
 const { serviceError } = require('../utils/serviceError');
+
+const parseEnvBool = (value, fallback = false) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+};
+
+const FIXED_MAX_TEACHER_DAILY_HOURS = 8;
+const FIXED_ROMBEL_DAILY_SUBJECT_LIMIT = 5;
+const ENABLE_WAJIB_PEMINATAN_CONFLICT_CHECK = parseEnvBool(
+  process.env.ENABLE_WAJIB_PEMINATAN_CONFLICT_CHECK,
+  false
+);
 
 const issue = (code, message, meta = {}) => ({
   code,
@@ -59,9 +76,10 @@ const mapLoads = (assignments, keyField) => {
   return Array.from(grouped.values());
 };
 
-const validateAssignments = (assignments, periodId) => {
+const validateAssignments = (assignments, periodId, options = {}) => {
   const errors = [];
   const warnings = [];
+  const enforceRombelSubjectTypeMatch = options.enforceRombelSubjectTypeMatch !== false;
 
   assignments.forEach((assignment) => {
     if (!assignment.Tendik) {
@@ -125,6 +143,20 @@ const validateAssignments = (assignments, periodId) => {
       ));
     }
 
+    if (enforceRombelSubjectTypeMatch && assignment.Rombel && assignment.Subject) {
+      const isRombelUtama = assignment.Rombel.type === 'utama';
+      const isRombelPeminatan = assignment.Rombel.type === 'peminatan';
+      const isSubjectWajib = assignment.Subject.type === 'wajib';
+      const isSubjectPeminatan = assignment.Subject.type === 'peminatan';
+
+      if ((isRombelUtama && isSubjectPeminatan) || (isRombelPeminatan && isSubjectWajib)) {
+        errors.push(issue(
+          'ROMBEL_SUBJECT_TYPE_MISMATCH',
+          `Pengampu #${assignment.id} tidak sesuai konsep rombel ${assignment.Rombel.type} dan mapel ${assignment.Subject.type}`
+        ));
+      }
+    }
+
     if (!Number.isInteger(assignment.weeklyHours) || assignment.weeklyHours <= 0) {
       errors.push(issue(
         'INVALID_WEEKLY_HOURS',
@@ -179,10 +211,12 @@ const buildCapacityIssues = ({ assignments, timeSlotCount, rombelCount }) => {
   };
 };
 
-const validateScheduleGenerationData = async (periodId) => {
+const resolveMaxTeacherDailyHours = () => FIXED_MAX_TEACHER_DAILY_HOURS;
+
+const validateScheduleGenerationData = async (periodId, constraints = {}) => {
   const normalizedPeriodId = ensurePeriodId(periodId);
 
-  const [period, rombels, subjects, timeSlots, assignments, teacherPreferences] = await Promise.all([
+  const [period, rombels, subjects, timeSlots, assignments, teacherPreferences, students] = await Promise.all([
     AcademicPeriod.findByPk(normalizedPeriodId),
     Rombel.findAll({
       where: { periodId: normalizedPeriodId },
@@ -226,6 +260,19 @@ const validateScheduleGenerationData = async (periodId) => {
       where: { periodId: normalizedPeriodId },
       attributes: ['id', 'teacherId', 'periodId', 'dayOfWeek', 'startTime', 'endTime', 'preferenceType', 'notes'],
       order: [['teacherId', 'ASC'], ['dayOfWeek', 'ASC'], ['startTime', 'ASC']]
+    }),
+    Student.findAll({
+      attributes: ['id', 'nis', 'name'],
+      include: [
+        {
+          model: Rombel,
+          where: { periodId: normalizedPeriodId },
+          through: { attributes: [] },
+          required: false,
+          attributes: ['id', 'name', 'type', 'periodId']
+        }
+      ],
+      order: [['id', 'ASC']]
     })
   ]);
 
@@ -272,9 +319,36 @@ const validateScheduleGenerationData = async (periodId) => {
     ));
   }
 
-  const assignmentValidation = validateAssignments(assignments, normalizedPeriodId);
+  const assignmentValidation = validateAssignments(
+    assignments,
+    normalizedPeriodId,
+    { enforceRombelSubjectTypeMatch: ENABLE_WAJIB_PEMINATAN_CONFLICT_CHECK }
+  );
   errors.push(...assignmentValidation.errors);
   warnings.push(...assignmentValidation.warnings);
+
+  const studentEnrollments = students
+    .map((student) => ({
+      studentId: student.id,
+      rombelIds: [...new Set((student.Rombels || []).map((rombel) => rombel.id))]
+    }))
+    .filter((item) => item.rombelIds.length > 0);
+
+  if (ENABLE_WAJIB_PEMINATAN_CONFLICT_CHECK) {
+    const studentsMultiRombel = studentEnrollments.filter((item) => item.rombelIds.length > 1);
+    const rombelMap = new Map(rombels.map((rombel) => [rombel.id, rombel]));
+    const studentsUtamaPlusPeminatan = studentsMultiRombel.filter((item) => {
+      const types = new Set(item.rombelIds.map((rombelId) => rombelMap.get(rombelId)?.type).filter(Boolean));
+      return types.has('utama') && types.has('peminatan');
+    });
+
+    if (rombels.some((rombel) => rombel.type === 'peminatan') && studentsUtamaPlusPeminatan.length === 0) {
+      warnings.push(issue(
+        'STUDENT_MEMBERSHIP_NOT_READY',
+        'Belum ada siswa yang terdaftar sekaligus pada rombel utama + peminatan. Validasi bentrok wajib vs peminatan belum bisa diberlakukan penuh.'
+      ));
+    }
+  }
 
   const teacherCount = new Set(
     assignments
@@ -296,6 +370,22 @@ const validateScheduleGenerationData = async (periodId) => {
   });
   errors.push(...capacity.errors);
 
+  // Batas ini dipatok sebagai hard constraint agar konsisten lintas modul.
+  void constraints;
+  const maxTeacherDailyHours = resolveMaxTeacherDailyHours();
+  const totalEffectiveDays = new Set(timeSlots.map((slot) => slot.dayOfWeek)).size;
+  if (maxTeacherDailyHours > 0 && totalEffectiveDays > 0) {
+    const maxTeacherWeeklyHours = maxTeacherDailyHours * totalEffectiveDays;
+    capacity.summary.teacherLoads
+      .filter((entry) => entry.totalHours > maxTeacherWeeklyHours)
+      .forEach((entry) => {
+        errors.push(issue(
+          'TEACHER_DAILY_LIMIT_INFEASIBLE',
+          `Guru ${entry.name || entry.id} membutuhkan ${entry.totalHours} jam, melebihi kapasitas ${maxTeacherWeeklyHours} jam untuk batas ${maxTeacherDailyHours} jam/hari`
+        ));
+      });
+  }
+
   return {
     valid: errors.length === 0,
     message: errors.length
@@ -316,7 +406,14 @@ const validateScheduleGenerationData = async (periodId) => {
         teachingAssignments: assignments.length,
         timeSlots: timeSlots.length,
         teachers: teacherCount,
-        teacherPreferences: teacherPreferences.length
+        teacherPreferences: teacherPreferences.length,
+        studentEnrollments: studentEnrollments.length
+      },
+      constraints: {
+        maxTeacherDailyHours,
+        rombelDailySubjectSoftLimit: FIXED_ROMBEL_DAILY_SUBJECT_LIMIT,
+        wajibPeminatanConflictCheckEnabled: ENABLE_WAJIB_PEMINATAN_CONFLICT_CHECK,
+        totalEffectiveDays
       },
       capacity: capacity.summary
     },
@@ -328,7 +425,8 @@ const validateScheduleGenerationData = async (periodId) => {
       subjects,
       assignments,
       timeSlots,
-      teacherPreferences
+      teacherPreferences,
+      studentEnrollments
     }
   };
 };

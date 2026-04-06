@@ -14,6 +14,9 @@ class TeachingAssignmentItem(BaseModel):
     rombel_id: int
     period_id: int
     weekly_hours: int
+    grade_level: int | None = None
+    subject_type: Literal["wajib", "peminatan"] | None = None
+    rombel_type: Literal["utama", "peminatan"] | None = None
 
 
 class TimeSlotItem(BaseModel):
@@ -36,6 +39,11 @@ class TeacherPreferenceItem(BaseModel):
     notes: str | None = None
 
 
+class StudentEnrollmentItem(BaseModel):
+    student_id: int
+    rombel_ids: list[int] = Field(default_factory=list)
+
+
 class IssueItem(BaseModel):
     code: str
     message: str
@@ -53,6 +61,7 @@ class ScheduleSummary(BaseModel):
     total_teaching_assignments: int = 0
     total_time_slots: int = 0
     total_teacher_preferences: int = 0
+    total_student_enrollments: int = 0
     generated_items: int = 0
     feasible: bool = False
     engine: str = "placeholder"
@@ -64,6 +73,7 @@ class ScheduleRequest(BaseModel):
     time_slots: list[TimeSlotItem] = Field(default_factory=list)
     constraints: dict[str, Any] = Field(default_factory=dict)
     teacher_preferences: list[TeacherPreferenceItem] = Field(default_factory=list)
+    student_enrollments: list[StudentEnrollmentItem] = Field(default_factory=list)
 
 
 class ScheduleResponse(BaseModel):

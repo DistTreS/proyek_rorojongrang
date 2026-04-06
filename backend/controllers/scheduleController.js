@@ -1,5 +1,6 @@
 const {
   approveScheduleBatch,
+  exportScheduleItems,
   getScheduleBatchDetail,
   changeDraftScheduleAssignment,
   generateDraftScheduleBatch,
@@ -12,6 +13,24 @@ const {
 } = require('../services/scheduleBatchService');
 const { validateScheduleGenerationData } = require('../services/scheduleValidationService');
 const { handleControllerError, serializeValidationResult } = require('../utils/controllerUtils');
+
+const parseConstraintsPayload = (rawConstraints) => {
+  if (!rawConstraints) return {};
+  if (typeof rawConstraints === 'object' && !Array.isArray(rawConstraints)) {
+    return rawConstraints;
+  }
+  if (typeof rawConstraints === 'string') {
+    try {
+      const parsed = JSON.parse(rawConstraints);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch {
+      throw new Error('CONSTRAINTS_INVALID_JSON');
+    }
+  }
+  throw new Error('CONSTRAINTS_INVALID_TYPE');
+};
 
 const list = async (req, res) => {
   try {
@@ -43,7 +62,20 @@ const batchDetail = async (req, res) => {
 const validate = async (req, res) => {
   try {
     const periodId = req.query.periodId ?? req.body?.periodId;
-    const result = await validateScheduleGenerationData(periodId);
+    let constraints = {};
+    try {
+      constraints = parseConstraintsPayload(req.body?.constraints ?? req.query.constraints);
+    } catch (parseErr) {
+      if (parseErr?.message === 'CONSTRAINTS_INVALID_JSON') {
+        return res.status(400).json({ message: 'Format constraints harus JSON object yang valid' });
+      }
+      if (parseErr?.message === 'CONSTRAINTS_INVALID_TYPE') {
+        return res.status(400).json({ message: 'Field constraints harus berupa object JSON' });
+      }
+      throw parseErr;
+    }
+
+    const result = await validateScheduleGenerationData(periodId, constraints);
     return res.json(serializeValidationResult(result));
   } catch (err) {
     return handleControllerError(res, err, 'Gagal memvalidasi data penjadwalan');
@@ -143,6 +175,20 @@ const rejectBatch = async (req, res) => {
   }
 };
 
+const exportSchedule = async (req, res) => {
+  try {
+    const data = await exportScheduleItems({
+      ...req.query,
+      user: req.user
+    });
+    res.setHeader('Content-Type', data.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename=\"${data.filename}\"`);
+    return res.send(data.buffer);
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal mengekspor jadwal');
+  }
+};
+
 module.exports = {
   list,
   listBatches,
@@ -152,6 +198,7 @@ module.exports = {
   updateItem,
   moveItemSlot,
   changeItemAssignment,
+  exportSchedule,
   submitBatch,
   approveBatch,
   rejectBatch

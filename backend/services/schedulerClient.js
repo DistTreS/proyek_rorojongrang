@@ -95,17 +95,6 @@ const requestScheduler = async ({ schedulerUrl, requestPayload, timeoutMs }) => 
       engine: 'scheduler-service'
     });
 
-    if (!result.scheduleItems.length) {
-      throw createFallbackReason(
-        'SCHEDULER_EMPTY_SCHEDULE',
-        'Scheduler service tidak mengembalikan item jadwal',
-        {
-          warnings: result.warnings,
-          conflicts: result.conflicts
-        }
-      );
-    }
-
     return {
       source: 'scheduler',
       engine: 'scheduler-service',
@@ -145,16 +134,18 @@ const generateScheduleItems = async ({
   timeSlots,
   periodId,
   constraints,
-  teacherPreferences
+  teacherPreferences,
+  studentEnrollments
 }) => {
   const schedulerUrl = process.env.SCHEDULER_URL || 'http://localhost:8000';
-  const timeoutMs = Number(process.env.SCHEDULER_TIMEOUT_MS || 15000);
+  const timeoutMs = Number(process.env.SCHEDULER_TIMEOUT_MS || 120000);
   const requestPayload = buildSchedulerRequestPayload({
     periodId,
     assignments,
     timeSlots,
     constraints,
-    teacherPreferences
+    teacherPreferences,
+    studentEnrollments
   });
 
   try {

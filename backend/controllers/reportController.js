@@ -1,10 +1,12 @@
 const {
+  exportReport,
   getDailyReport,
   getGlobalReport,
   getMonthlyReport,
   getReportByDateRange,
   getReportByRombel,
   getReportByStudent,
+  getReportByTeacherSubject,
   getReportByTimeSlot,
   getSemesterReport
 } = require('../services/reportService');
@@ -82,10 +84,32 @@ const reportByDateRange = async (req, res) => {
   }
 };
 
+const reportByTeacherSubject = async (req, res) => {
+  try {
+    const data = await getReportByTeacherSubject({ user: req.user, ...req.query });
+    return res.json(data);
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal memuat laporan guru per mapel');
+  }
+};
+
+const exportReportFile = async (req, res) => {
+  try {
+    const data = await exportReport({ user: req.user, ...req.query });
+    res.setHeader('Content-Type', data.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename=\"${data.filename}\"`);
+    return res.send(data.buffer);
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal mengekspor laporan');
+  }
+};
+
 module.exports = {
+  exportReportFile,
   globalReport,
   reportByStudent,
   reportByRombel,
+  reportByTeacherSubject,
   reportByTimeSlot,
   reportDaily,
   reportMonthly,

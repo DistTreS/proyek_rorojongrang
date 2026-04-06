@@ -30,6 +30,10 @@ const getMeetingDayOfWeek = (date) => {
   return day === 0 ? null : day;
 };
 
+const normalizeMeetingMode = (mode) => {
+  return String(mode || 'scheduled').toLowerCase() === 'manual' ? 'manual' : 'scheduled';
+};
+
 const getRequestTeacher = async (user, { required = false } = {}) => {
   if (!isGuruUser(user)) {
     return null;
@@ -234,6 +238,92 @@ const listAttendanceMeetings = async (query = {}) => {
   return paginateItems(normalizeMeetingRows(rows), pagination);
 };
 
+const listAttendanceMeetingSlots = async ({ date, rombelId }) => {
+  if (!date || !rombelId) {
+    throw serviceError(400, 'date dan rombelId wajib diisi');
+  }
+
+  const meetingDay = getMeetingDayOfWeek(date);
+  if (!meetingDay) {
+    throw serviceError(400, 'Tanggal pertemuan tidak valid atau berada di luar hari belajar');
+  }
+
+  const rombel = await Rombel.findByPk(Number(rombelId), { attributes: ['id', 'periodId'] });
+  if (!rombel) {
+    throw serviceError(404, 'Rombel tidak ditemukan');
+  }
+
+  const slots = await TimeSlot.findAll({
+    where: {
+      periodId: rombel.periodId,
+      dayOfWeek: meetingDay
+    },
+    attributes: ['id', 'periodId', 'dayOfWeek', 'startTime', 'endTime', 'label'],
+    order: [['startTime', 'ASC'], ['endTime', 'ASC']]
+  });
+
+  return slots.map((slot) => ({
+    id: slot.id,
+    periodId: slot.periodId,
+    dayOfWeek: slot.dayOfWeek,
+    startTime: slot.startTime,
+    endTime: slot.endTime,
+    label: slot.label
+  }));
+};
+
+const listAttendanceManualOptions = async ({ user }) => {
+  const teacher = await getRequestTeacher(user, { required: true });
+  if (!teacher) {
+    throw serviceError(403, 'Akun guru belum terhubung dengan data tendik guru');
+  }
+
+  const assignments = await TeachingAssignment.findAll({
+    where: { teacherId: teacher.id },
+    include: [
+      {
+        model: Rombel,
+        attributes: ['id', 'name', 'gradeLevel', 'type', 'periodId']
+      },
+      {
+        model: Subject,
+        attributes: ['id', 'code', 'name', 'type', 'periodId']
+      }
+    ],
+    order: [['id', 'ASC']]
+  });
+
+  const rombelMap = new Map();
+  const subjectMap = new Map();
+
+  assignments.forEach((assignment) => {
+    if (assignment.Rombel?.id) {
+      rombelMap.set(assignment.Rombel.id, {
+        id: assignment.Rombel.id,
+        name: assignment.Rombel.name,
+        gradeLevel: assignment.Rombel.gradeLevel,
+        type: assignment.Rombel.type,
+        periodId: assignment.Rombel.periodId
+      });
+    }
+
+    if (assignment.Subject?.id) {
+      subjectMap.set(assignment.Subject.id, {
+        id: assignment.Subject.id,
+        code: assignment.Subject.code,
+        name: assignment.Subject.name,
+        type: assignment.Subject.type,
+        periodId: assignment.Subject.periodId
+      });
+    }
+  });
+
+  return {
+    rombels: [...rombelMap.values()].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'id-ID')),
+    subjects: [...subjectMap.values()].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'id-ID'))
+  };
+};
+
 const getAttendanceMeetingDetail = async ({ user, meetingId }) => {
   const canAccessMeeting = await ensureMeetingAccessible(user, meetingId);
   if (!canAccessMeeting) {
@@ -289,9 +379,25 @@ const getAttendanceMeetingDetail = async ({ user, meetingId }) => {
 };
 
 const createAttendanceMeeting = async ({ user, payload }) => {
-  const { date, rombelId, timeSlotIds, subjectId, substituteTeacherId, meetingNote } = payload;
+  const {
+    date,
+    rombelId,
+    timeSlotIds,
+    subjectId,
+    substituteTeacherId,
+    meetingNote,
+    mode
+  } = payload;
   if (!date || !rombelId || !subjectId || !Array.isArray(timeSlotIds) || !timeSlotIds.length) {
     throw serviceError(400, 'Data pertemuan belum lengkap');
+  }
+
+  const meetingMode = normalizeMeetingMode(mode);
+  const normalizedRombelId = Number(rombelId);
+  const normalizedSubjectId = Number(subjectId);
+
+  if (!Number.isInteger(normalizedRombelId) || !Number.isInteger(normalizedSubjectId)) {
+    throw serviceError(400, 'Rombel dan mapel tidak valid');
   }
 
   const teacher = await getRequestTeacher(user, { required: true });
@@ -305,52 +411,64 @@ const createAttendanceMeeting = async ({ user, payload }) => {
     throw serviceError(400, 'Tanggal pertemuan tidak valid atau berada di luar hari belajar');
   }
 
-  const approvedSchedules = await Schedule.findAll({
-    where: {
-      rombelId: Number(rombelId),
-      timeSlotId: { [Op.in]: uniqueTimeSlotIds }
-    },
-    include: [
-      {
-        model: ScheduleBatch,
-        where: { status: 'approved' },
-        required: true
-      },
-      {
-        model: TimeSlot,
-        where: { dayOfWeek: meetingDay },
-        required: true
-      },
-      {
-        model: TeachingAssignment,
-        where: {
-          teacherId: teacher.id,
-          subjectId: Number(subjectId),
-          rombelId: Number(rombelId)
-        },
-        required: true
+  const [rombel, subject, substitute, slots] = await Promise.all([
+    Rombel.findByPk(normalizedRombelId),
+    Subject.findByPk(normalizedSubjectId),
+    substituteTeacherId ? Tendik.findByPk(substituteTeacherId) : null,
+    TimeSlot.findAll({
+      where: {
+        id: { [Op.in]: uniqueTimeSlotIds },
+        dayOfWeek: meetingDay
       }
-    ]
-  });
-
-  const matchedSlotIds = [...new Set(approvedSchedules.map((item) => Number(item.timeSlotId)).filter(Boolean))];
-  if (matchedSlotIds.length !== uniqueTimeSlotIds.length) {
-    throw serviceError(400, 'Presensi hanya bisa dibuat berdasarkan jadwal approved yang Anda ampu');
-  }
-
-  const [rombel, subject, substitute] = await Promise.all([
-    Rombel.findByPk(rombelId),
-    Subject.findByPk(subjectId),
-    substituteTeacherId ? Tendik.findByPk(substituteTeacherId) : null
+    })
   ]);
 
   if (!rombel || !subject) {
     throw serviceError(400, 'Rombel atau mapel tidak valid');
   }
 
-  const slots = uniqueTimeSlotIds
-    .map((slotId) => approvedSchedules.find((schedule) => schedule.timeSlotId === slotId)?.TimeSlot)
-    .filter(Boolean);
+  if (slots.length !== uniqueTimeSlotIds.length) {
+    throw serviceError(400, 'Jam pelajaran tidak valid untuk tanggal yang dipilih');
+  }
+
+  if (slots.some((slot) => Number(slot.periodId) !== Number(rombel.periodId))) {
+    throw serviceError(400, 'Jam pelajaran harus berada pada periode akademik yang sama dengan rombel');
+  }
+
+  if (meetingMode === 'scheduled') {
+    const approvedSchedules = await Schedule.findAll({
+      where: {
+        rombelId: normalizedRombelId,
+        timeSlotId: { [Op.in]: uniqueTimeSlotIds }
+      },
+      include: [
+        {
+          model: ScheduleBatch,
+          where: { status: 'approved' },
+          required: true
+        },
+        {
+          model: TimeSlot,
+          where: { dayOfWeek: meetingDay },
+          required: true
+        },
+        {
+          model: TeachingAssignment,
+          where: {
+            teacherId: teacher.id,
+            subjectId: normalizedSubjectId,
+            rombelId: normalizedRombelId
+          },
+          required: true
+        }
+      ]
+    });
+
+    const matchedSlotIds = [...new Set(approvedSchedules.map((item) => Number(item.timeSlotId)).filter(Boolean))];
+    if (matchedSlotIds.length !== uniqueTimeSlotIds.length) {
+      throw serviceError(400, 'Presensi hanya bisa dibuat berdasarkan jadwal approved yang Anda ampu');
+    }
+  }
 
   const students = await rombel.getStudents();
   if (!students.length) {
@@ -366,9 +484,9 @@ const createAttendanceMeeting = async ({ user, payload }) => {
         records.push({
           meetingId,
           studentId: student.id,
-          rombelId,
+          rombelId: normalizedRombelId,
           timeSlotId: slot.id,
-          subjectId,
+          subjectId: normalizedSubjectId,
           teacherId: teacher.id,
           substituteTeacherId: substitute?.id || null,
           date,
@@ -385,6 +503,7 @@ const createAttendanceMeeting = async ({ user, payload }) => {
 
     return {
       meetingId,
+      mode: meetingMode,
       totalStudents: students.length,
       totalRecords: records.length
     };
@@ -539,6 +658,8 @@ module.exports = {
   getAttendanceMeetingDetail,
   getAttendanceSummary,
   listAttendance,
+  listAttendanceManualOptions,
+  listAttendanceMeetingSlots,
   listAttendanceMeetings,
   updateAttendance,
   updateAttendanceMeetingEntries,

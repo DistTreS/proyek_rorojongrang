@@ -213,7 +213,7 @@ const Siswa = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-4xl font-semibold text-slate-900">
             {canManage ? 'Data Siswa' : 'Daftar Siswa'}
@@ -224,7 +224,7 @@ const Siswa = () => {
         </div>
 
         {canManage && (
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
             <Button variant="secondary" onClick={openImport}>
               Import Excel
             </Button>
@@ -260,7 +260,7 @@ const Siswa = () => {
                     ? student.rombels.map(r => formatRombelLabel(rombelMap.get(r.id) || r)).join(', ')
                     : '-'}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" size="sm" onClick={() => openDetail(student)}>
                     Detail
                   </Button>
@@ -309,7 +309,7 @@ const Siswa = () => {
         {/* Create / Edit */}
         {(modal.type === 'create' || modal.type === 'edit') && (
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">NIS</label>
                 <Input value={form.nis} onChange={e => updateForm('nis', e.target.value)} required />
@@ -320,7 +320,7 @@ const Siswa = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Jenis Kelamin</label>
                 <Select value={form.gender} onChange={e => updateForm('gender', e.target.value)}>
@@ -349,7 +349,7 @@ const Siswa = () => {
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button type="submit" variant="primary" size="lg" className="flex-1">
                 {editingId ? 'Simpan Perubahan' : 'Tambah Siswa'}
               </Button>
@@ -363,7 +363,7 @@ const Siswa = () => {
         {/* Detail */}
         {modal.type === 'detail' && modal.item && (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div><span className="text-xs uppercase text-slate-500">NIS</span><p className="font-semibold">{modal.item.nis}</p></div>
               <div><span className="text-xs uppercase text-slate-500">Nama</span><p className="font-semibold">{modal.item.name}</p></div>
               <div><span className="text-xs uppercase text-slate-500">Gender</span><p className="font-semibold">{modal.item.gender === 'L' ? 'Laki-laki' : modal.item.gender === 'P' ? 'Perempuan' : '-'}</p></div>
@@ -384,7 +384,7 @@ const Siswa = () => {
         {modal.type === 'delete' && modal.item && (
           <div className="space-y-6">
             <p className="text-slate-600">Yakin ingin menghapus siswa <span className="font-semibold">{modal.item.name}</span>?</p>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">Hapus</Button>
               <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
             </div>
@@ -402,7 +402,7 @@ const Siswa = () => {
             </Button>
             <Input type="file" accept=".xlsx" onChange={e => setImportFile(e.target.files?.[0] || null)} />
             
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button onClick={handleImport} className="flex-1" disabled={!importFile}>Import Data</Button>
               <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
             </div>

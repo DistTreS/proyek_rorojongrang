@@ -11,6 +11,7 @@ const {
   updateItem,
   moveItemSlot,
   changeItemAssignment,
+  exportSchedule,
   submitBatch,
   approveBatch,
   rejectBatch
@@ -20,8 +21,10 @@ const router = express.Router();
 
 router.get('/batches', auth, authorize(ACCESS.schedule.view), listBatches);
 router.get('/batches/:batchId', auth, authorize(ACCESS.schedule.view), batchDetail);
+router.get('/export', auth, authorize(ACCESS.schedule.view), exportSchedule);
 router.get('/', auth, authorize(ACCESS.schedule.view), list);
 router.get('/validate', auth, authorize(ACCESS.schedule.manage), validate);
+router.post('/validate', auth, authorize(ACCESS.schedule.manage), validate);
 router.post('/generate', auth, authorize(ACCESS.schedule.manage), generate);
 router.post('/batches/:batchId/submit', auth, authorize(ACCESS.schedule.submit), submitBatch);
 router.post('/batches/:batchId/approve', auth, authorize(ACCESS.schedule.approve), approveBatch);

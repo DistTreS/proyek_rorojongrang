@@ -118,7 +118,7 @@ const Dashboard = () => {
           {/* Statistik */}
           <Card className="p-6">
             <h2 className="text-lg font-semibold mb-6">Statistik Utama</h2>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="bg-neutral-50 rounded-3xl p-6 text-center">
                 <p className="text-4xl font-semibold text-emerald-600">{overview.students}</p>
                 <p className="text-sm text-neutral-500 mt-1">Total Siswa</p>

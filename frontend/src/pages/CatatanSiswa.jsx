@@ -153,7 +153,7 @@ const CatatanSiswa = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-4xl font-semibold text-slate-900">Catatan Siswa</h1>
           <p className="text-slate-600 mt-1">Kelola catatan prestasi dan masalah siswa</p>
@@ -287,7 +287,7 @@ const CatatanSiswa = () => {
               </Select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Kategori</label>
                 <Select value={form.category} onChange={(e) => updateForm('category', e.target.value)}>
@@ -317,7 +317,7 @@ const CatatanSiswa = () => {
               />
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button type="submit" variant="primary" size="lg" className="flex-1">
                 {editingId ? 'Simpan Perubahan' : 'Tambah Catatan'}
               </Button>
@@ -348,7 +348,7 @@ const CatatanSiswa = () => {
             <p className="text-slate-600">
               Yakin ingin menghapus catatan untuk <span className="font-semibold">{modal.item.student?.name}</span>?
             </p>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">
                 Ya, Hapus
               </Button>

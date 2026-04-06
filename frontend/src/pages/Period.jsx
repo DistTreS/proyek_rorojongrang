@@ -151,7 +151,7 @@ const Period = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-4xl font-semibold text-slate-900">Periode Akademik</h1>
           <p className="text-slate-600 mt-1">Kelola periode, hanya satu periode aktif sekaligus</p>
@@ -187,7 +187,7 @@ const Period = () => {
                     {period.isActive ? 'Aktif' : 'Nonaktif'}
                   </Badge>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" size="sm" onClick={() => openDetail(period)}>
                     Detail
                   </Button>
@@ -242,7 +242,7 @@ const Period = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Tanggal Mulai</label>
                 <Input
@@ -281,7 +281,7 @@ const Period = () => {
               <span className="text-sm text-slate-700">Jadikan periode aktif</span>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button type="submit" variant="primary" size="lg" className="flex-1">
                 {editingId ? 'Simpan Perubahan' : 'Tambah Periode'}
               </Button>
@@ -294,7 +294,7 @@ const Period = () => {
 
         {modal.type === 'detail' && modal.item && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div><span className="text-xs uppercase text-slate-500">Nama</span><p className="font-semibold">{modal.item.name}</p></div>
               <div><span className="text-xs uppercase text-slate-500">Status</span><p className="font-semibold">{modal.item.isActive ? 'Aktif' : 'Nonaktif'}</p></div>
               <div><span className="text-xs uppercase text-slate-500">Semester</span><p className="font-semibold">{modal.item.semester === 'genap' ? 'Genap' : 'Ganjil'}</p></div>
@@ -309,7 +309,7 @@ const Period = () => {
             <p className="text-slate-600">
               Yakin ingin menghapus periode <span className="font-semibold">{modal.item.name}</span>?
             </p>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">Hapus</Button>
               <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
             </div>

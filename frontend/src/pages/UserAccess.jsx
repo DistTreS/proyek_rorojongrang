@@ -188,7 +188,7 @@ const UserAccess = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-4xl font-semibold text-slate-900">User & Hak Akses</h1>
           <p className="text-slate-600 mt-1">Kelola akun login, status aktif, dan kombinasi role pengguna</p>
@@ -203,7 +203,7 @@ const UserAccess = () => {
 
       {/* Search */}
       <Card className="p-6">
-        <form onSubmit={handleSearch} className="flex gap-3">
+        <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -240,7 +240,7 @@ const UserAccess = () => {
                     {item.isActive ? 'Aktif' : 'Nonaktif'}
                   </Badge>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" size="sm" onClick={() => openDetail(item)}>
                     Detail
                   </Button>
@@ -284,7 +284,7 @@ const UserAccess = () => {
         {/* Create & Edit Form */}
         {(modal.type === 'create' || modal.type === 'edit') && (
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Username</label>
                 <Input value={form.username} onChange={e => updateForm('username', e.target.value)} required />
@@ -295,7 +295,7 @@ const UserAccess = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Nama Lengkap</label>
                 <Input value={form.name} onChange={e => updateForm('name', e.target.value)} required />
@@ -323,7 +323,7 @@ const UserAccess = () => {
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-3">Role</label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {ROLE_OPTIONS.map(role => (
                   <label key={role.value} className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={roleSet.has(role.value)} onChange={() => toggleRole(role.value)} />
@@ -333,7 +333,7 @@ const UserAccess = () => {
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button type="submit" variant="primary" size="lg" className="flex-1">
                 {editingId ? 'Simpan Perubahan' : 'Tambah User'}
               </Button>
@@ -347,7 +347,7 @@ const UserAccess = () => {
         {/* Detail */}
         {modal.type === 'detail' && modal.item && (
           <div className="space-y-6 text-sm">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div><span className="text-xs uppercase text-slate-500">Nama</span><p className="font-semibold">{modal.item.tendik?.name || modal.item.username}</p></div>
               <div><span className="text-xs uppercase text-slate-500">Username</span><p className="font-semibold">{modal.item.username}</p></div>
               <div><span className="text-xs uppercase text-slate-500">Email</span><p className="font-semibold">{modal.item.email}</p></div>
@@ -368,7 +368,7 @@ const UserAccess = () => {
         {modal.type === 'delete' && modal.item && (
           <div className="space-y-6">
             <p className="text-slate-600">Yakin ingin menghapus user <span className="font-semibold">{modal.item.username}</span>?</p>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">Hapus</Button>
               <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
             </div>

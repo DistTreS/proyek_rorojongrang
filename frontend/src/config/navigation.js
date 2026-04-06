@@ -185,7 +185,8 @@ export const APP_NAV_ITEMS = Object.freeze([
       pageTitle: 'Ajukan Jadwal untuk Pengesahan',
       pageDescription: 'Pilih batch draft atau rejected, lalu ajukan kembali ke kepala sekolah.',
       canGenerate: false,
-      canSubmit: true
+      canSubmit: true,
+      batchStatusFilter: 'submittable'
     }
   },
   {

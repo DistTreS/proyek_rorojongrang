@@ -159,7 +159,7 @@ const Mapel = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-4xl font-semibold text-slate-900">Mata Pelajaran</h1>
           <p className="text-slate-600 mt-1">Kelola data mapel per periode akademik</p>
@@ -220,7 +220,7 @@ const Mapel = () => {
                   </p>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" size="sm" onClick={() => openDetail(subject)}>
                     Detail
                   </Button>
@@ -266,7 +266,7 @@ const Mapel = () => {
       >
         {(modal.type === 'create' || modal.type === 'edit') && (
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Periode</label>
                 <Select
@@ -291,7 +291,7 @@ const Mapel = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Nama Mapel</label>
                 <Input
@@ -314,7 +314,7 @@ const Mapel = () => {
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button type="submit" variant="primary" size="lg" className="flex-1">
                 {editingId ? 'Simpan Perubahan' : 'Tambah Mapel'}
               </Button>
@@ -327,7 +327,7 @@ const Mapel = () => {
 
         {modal.type === 'detail' && modal.item && (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-xs uppercase text-slate-500">Nama</span>
                 <p className="font-semibold">{modal.item.name}</p>
@@ -353,7 +353,7 @@ const Mapel = () => {
             <p className="text-slate-600">
               Yakin ingin menghapus mapel <span className="font-semibold">{modal.item.name}</span>?
             </p>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">
                 Hapus
               </Button>

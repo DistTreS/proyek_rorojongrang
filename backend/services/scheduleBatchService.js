@@ -1,3 +1,4 @@
+const { Op } = require('sequelize');
 const {
   sequelize,
   Schedule,
@@ -11,6 +12,7 @@ const {
   AcademicPeriod,
   User
 } = require('../models');
+const XLSX = require('xlsx');
 const { serviceError } = require('../utils/serviceError');
 const { validateScheduleGenerationData } = require('./scheduleValidationService');
 const { getTeacherContext, isGuruScopedUser } = require('./teacherOperationalService');
@@ -25,6 +27,15 @@ const {
   resolveTargetTeachingAssignment,
   resolveTargetTimeSlot
 } = require('../validators/scheduleWorkflowValidator');
+
+const DAY_LABELS = Object.freeze({
+  1: 'Senin',
+  2: 'Selasa',
+  3: 'Rabu',
+  4: 'Kamis',
+  5: 'Jumat',
+  6: 'Sabtu'
+});
 
 const scheduleInclude = [
   {
@@ -262,9 +273,66 @@ const listScheduleItems = async ({ periodId, rombelId, batchId, status, user } =
   return schedules.map(formatScheduleItem);
 };
 
+const exportScheduleItems = async ({ periodId, rombelId, batchId, status, user, format } = {}) => {
+  const normalizedFormat = String(format || 'xlsx').trim().toLowerCase();
+  if (!['xlsx', 'csv'].includes(normalizedFormat)) {
+    throw serviceError(400, 'Format export harus xlsx atau csv');
+  }
+
+  const items = await listScheduleItems({
+    periodId,
+    rombelId,
+    batchId,
+    status,
+    user
+  });
+
+  const rows = items.map((item) => ({
+    Batch: item.batch?.versionNumber ? `V${item.batch.versionNumber}` : '-',
+    StatusBatch: item.batch?.status || '-',
+    Periode: item.batch?.periodName || item.teachingAssignment?.period?.name || '-',
+    Hari: DAY_LABELS[item.timeSlot?.dayOfWeek] || item.timeSlot?.dayOfWeek || '-',
+    JamMulai: item.timeSlot?.startTime || '-',
+    JamSelesai: item.timeSlot?.endTime || '-',
+    LabelSlot: item.timeSlot?.label || '-',
+    Rombel: item.teachingAssignment?.rombel?.name || '-',
+    Mapel: item.teachingAssignment?.subject?.name || '-',
+    KodeMapel: item.teachingAssignment?.subject?.code || '-',
+    Guru: item.teachingAssignment?.teacher?.name || '-',
+    WeeklyHours: item.teachingAssignment?.weeklyHours ?? '-',
+    Ruang: item.room || '-'
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Info: 'Tidak ada data jadwal' }]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Jadwal');
+
+  const batchPart = items[0]?.batch?.versionNumber ? `v${items[0].batch.versionNumber}` : 'all';
+  const periodPart = String(items[0]?.batch?.periodName || periodId || 'all')
+    .replace(/[^a-zA-Z0-9-_]+/g, '-')
+    .toLowerCase();
+  const filename = `jadwal-${periodPart}-${batchPart}.${normalizedFormat}`;
+
+  if (normalizedFormat === 'csv') {
+    const csvText = XLSX.utils.sheet_to_csv(worksheet);
+    return {
+      filename,
+      mimeType: 'text/csv; charset=utf-8',
+      buffer: Buffer.from(csvText, 'utf8')
+    };
+  }
+
+  const fileBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  return {
+    filename,
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: fileBuffer
+  };
+};
+
 const generateDraftScheduleBatch = async ({ periodId, constraints, userId }) => {
   const normalizedPeriodId = ensurePeriodId(periodId);
-  const validation = await validateScheduleGenerationData(normalizedPeriodId);
+  const validation = await validateScheduleGenerationData(normalizedPeriodId, constraints || {});
   if (!validation.valid) {
     throw Object.assign(serviceError(422, validation.message), { validation });
   }
@@ -272,17 +340,22 @@ const generateDraftScheduleBatch = async ({ periodId, constraints, userId }) => 
   const assignments = validation.data.assignments;
   const timeSlots = validation.data.timeSlots;
   const teacherPreferences = validation.data.teacherPreferences || [];
+  const studentEnrollments = validation.data.studentEnrollments || [];
   const schedulerResult = await generateScheduleItems({
     assignments,
     timeSlots,
     periodId: normalizedPeriodId,
     constraints,
-    teacherPreferences
+    teacherPreferences,
+    studentEnrollments
   });
   const scheduleItems = schedulerResult.scheduleItems;
 
   if (!scheduleItems.length) {
-    throw serviceError(400, 'Gagal membuat draft jadwal');
+    const schedulerMessage = schedulerResult.conflicts?.[0]?.message
+      || schedulerResult.warnings?.[0]?.message
+      || 'Scheduler tidak mengembalikan item jadwal';
+    throw serviceError(422, `Gagal membuat draft jadwal: ${schedulerMessage}`);
   }
 
   const transaction = await sequelize.transaction();
@@ -401,14 +474,62 @@ const getScheduleBatchDetail = async (id, { user } = {}) => {
   return formatBatch(batch, scheduleCount, summaryMap.get(batch.id) || createEmptyBatchSummary());
 };
 
-const updateBatchStatus = async ({ batchId, actorId, toStatus, notes }) => {
-  const batch = await ScheduleBatch.findByPk(batchId);
-  if (!batch) {
-    throw serviceError(404, 'Batch jadwal tidak ditemukan');
+const deactivateOtherApprovedBatchesInPeriod = async ({
+  periodId,
+  activeBatchId,
+  actorId,
+  transaction
+}) => {
+  const previousApprovedBatches = await ScheduleBatch.findAll({
+    where: {
+      periodId: Number(periodId),
+      status: 'approved',
+      id: { [Op.ne]: Number(activeBatchId) }
+    },
+    transaction,
+    lock: transaction.LOCK.UPDATE
+  });
+
+  if (!previousApprovedBatches.length) {
+    return 0;
   }
 
+  const now = new Date();
+  const autoDeactivateNote = `Dinonaktifkan otomatis karena batch #${activeBatchId} disetujui sebagai jadwal resmi aktif.`;
+
+  for (const previousBatch of previousApprovedBatches) {
+    const fromStatus = previousBatch.status;
+    previousBatch.status = 'rejected';
+    previousBatch.approvedBy = actorId || previousBatch.approvedBy || null;
+    previousBatch.approvedAt = now;
+    previousBatch.notes = previousBatch.notes
+      ? `${previousBatch.notes}\n\n${autoDeactivateNote}`
+      : autoDeactivateNote;
+    await previousBatch.save({ transaction });
+
+    await ScheduleBatchLog.create({
+      batchId: previousBatch.id,
+      actorId: actorId || null,
+      fromStatus,
+      toStatus: 'rejected',
+      notes: autoDeactivateNote
+    }, { transaction });
+  }
+
+  return previousApprovedBatches.length;
+};
+
+const updateBatchStatus = async ({ batchId, actorId, toStatus, notes }) => {
   const transaction = await sequelize.transaction();
   try {
+    const batch = await ScheduleBatch.findByPk(batchId, {
+      transaction,
+      lock: transaction.LOCK.UPDATE
+    });
+    if (!batch) {
+      throw serviceError(404, 'Batch jadwal tidak ditemukan');
+    }
+
     const now = new Date();
     const normalizedNotes = String(notes || '').trim() || null;
     const fromStatus = batch.status;
@@ -425,6 +546,14 @@ const updateBatchStatus = async ({ batchId, actorId, toStatus, notes }) => {
       if (batch.status !== 'submitted') {
         throw serviceError(409, 'Hanya batch submitted yang dapat disetujui');
       }
+
+      await deactivateOtherApprovedBatchesInPeriod({
+        periodId: batch.periodId,
+        activeBatchId: batch.id,
+        actorId,
+        transaction
+      });
+
       batch.status = 'approved';
       batch.approvedBy = actorId || null;
       batch.approvedAt = now;
@@ -581,6 +710,7 @@ module.exports = {
   BATCH_STATUSES,
   approveScheduleBatch,
   changeDraftScheduleAssignment,
+  exportScheduleItems,
   generateDraftScheduleBatch,
   getScheduleBatchDetail,
   listScheduleBatches,

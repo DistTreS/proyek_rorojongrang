@@ -85,7 +85,7 @@ const hasAnyRole = (userRoles, allowedRoles) => {
 const ACCESS = Object.freeze({
   authenticated: freezeRoles(ROLE_LIST),
   academicPeriod: Object.freeze({
-    view: freezeRoles([ROLES.STAFF_TU, ROLES.WAKASEK]),
+    view: freezeRoles([ROLES.STAFF_TU, ROLES.WAKASEK, ROLES.GURU, ROLES.KEPALA_SEKOLAH]),
     manage: freezeRoles(ADMIN_ROLES)
   }),
   attendance: Object.freeze({

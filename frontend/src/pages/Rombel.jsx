@@ -252,7 +252,7 @@ const Rombel = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-4xl font-semibold text-slate-900">Rombongan Belajar</h1>
           <p className="text-slate-600 mt-1">
@@ -299,7 +299,7 @@ const Rombel = () => {
                 <div className="text-sm text-slate-700">{rombel.gradeLevel || '-'}</div>
                 <div className="text-sm text-slate-700">{typeLabel(rombel.type)}</div>
                 <div className="text-sm text-slate-700">{periodMap.get(rombel.periodId)?.name || '-'}</div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" size="sm" onClick={() => openDetail(rombel)}>
                     Detail
                   </Button>
@@ -356,7 +356,7 @@ const Rombel = () => {
               <Input value={form.name} onChange={e => updateForm('name', e.target.value)} required />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Periode</label>
                 <Select value={form.periodId} onChange={e => updateForm('periodId', e.target.value)} required>
@@ -377,7 +377,7 @@ const Rombel = () => {
               <Input value={form.gradeLevel} onChange={e => updateForm('gradeLevel', e.target.value)} placeholder="contoh: X atau 10" />
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button type="submit" variant="primary" size="lg" className="flex-1">
                 {editingId ? 'Simpan Perubahan' : 'Tambah Rombel'}
               </Button>
@@ -391,7 +391,7 @@ const Rombel = () => {
         {/* Detail Modal */}
         {modal.type === 'detail' && modal.item && (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div><span className="text-xs uppercase text-slate-500">Nama</span><p className="font-semibold">{modal.item.name}</p></div>
               <div><span className="text-xs uppercase text-slate-500">Jenis</span><p className="font-semibold">{typeLabel(modal.item.type)}</p></div>
               <div><span className="text-xs uppercase text-slate-500">Tingkat</span><p className="font-semibold">{modal.item.gradeLevel || '-'}</p></div>
@@ -399,13 +399,13 @@ const Rombel = () => {
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <span className="text-sm font-medium">Daftar Siswa ({modal.item.students?.length || 0})</span>
                 <Input
                   value={detailQuery}
                   onChange={e => setDetailQuery(e.target.value)}
                   placeholder="Cari nama atau NIS..."
-                  className="w-64"
+                  className="w-full sm:w-64"
                 />
               </div>
 
@@ -438,7 +438,7 @@ const Rombel = () => {
         {/* Assign Modal */}
         {modal.type === 'assign' && canManage && (
           <div className="space-y-6">
-            <div className="flex justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <h3 className="text-lg font-semibold">Assign Siswa ke {modal.item?.name}</h3>
               <Button variant="secondary" onClick={closeModal}>Tutup</Button>
             </div>
@@ -467,7 +467,7 @@ const Rombel = () => {
                 ))}
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button onClick={handleAssign} disabled={assignLoading} className="flex-1">
                 {assignLoading ? 'Menyimpan...' : 'Simpan Assign'}
               </Button>
@@ -480,7 +480,7 @@ const Rombel = () => {
         {modal.type === 'delete' && modal.item && canManage && (
           <div className="space-y-6">
             <p className="text-slate-600">Yakin ingin menghapus rombel <span className="font-semibold">{modal.item.name}</span>?</p>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">Hapus</Button>
               <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
             </div>

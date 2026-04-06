@@ -145,7 +145,7 @@ const JamPelajaran = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-4xl font-semibold text-slate-900">Jam Pelajaran</h1>
           <p className="text-slate-600 mt-1">Kelola slot waktu pembelajaran per periode</p>
@@ -205,7 +205,7 @@ const JamPelajaran = () => {
                 </div>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button variant="secondary" size="sm" onClick={() => handleEdit(slot)}>
                   Edit
                 </Button>
@@ -250,7 +250,7 @@ const JamPelajaran = () => {
               </Select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Hari</label>
                 <Select value={form.dayOfWeek} onChange={(e) => updateForm('dayOfWeek', e.target.value)}>
@@ -265,7 +265,7 @@ const JamPelajaran = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Jam Mulai</label>
                 <Input type="time" value={form.startTime} onChange={(e) => updateForm('startTime', e.target.value)} required />
@@ -276,7 +276,7 @@ const JamPelajaran = () => {
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button type="submit" variant="primary" size="lg" className="flex-1">
                 {editingId ? 'Simpan Perubahan' : 'Tambah Jam'}
               </Button>
@@ -292,7 +292,7 @@ const JamPelajaran = () => {
             <p className="text-slate-600">
               Yakin ingin menghapus jam pelajaran ini?
             </p>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">
                 Hapus
               </Button>

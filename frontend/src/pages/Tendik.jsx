@@ -228,13 +228,13 @@ const Tendik = ({
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-4xl font-semibold text-slate-900">{pageTitle}</h1>
           <p className="text-slate-600 mt-1">{pageDescription}</p>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Button variant="secondary" onClick={openImport}>
             Import Excel
           </Button>
@@ -273,7 +273,7 @@ const Tendik = ({
                     {item.user?.isActive ? 'Aktif' : 'Nonaktif'}
                   </Badge>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" size="sm" onClick={() => openDetail(item)}>
                     Detail
                   </Button>
@@ -318,7 +318,7 @@ const Tendik = ({
         {/* Create / Edit */}
         {(modal.type === 'create' || modal.type === 'edit') && (
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Nama Lengkap</label>
                 <Input value={form.name} onChange={e => updateForm('name', e.target.value)} required />
@@ -356,7 +356,7 @@ const Tendik = ({
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-3">Role</label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {ROLE_OPTIONS.map(role => (
                   <label key={role.value} className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -370,7 +370,7 @@ const Tendik = ({
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button type="submit" variant="primary" size="lg" className="flex-1" disabled={saving}>
                 {saving ? 'Menyimpan...' : editingId ? 'Simpan Perubahan' : 'Tambah Tendik'}
               </Button>
@@ -383,7 +383,7 @@ const Tendik = ({
 
         {modal.type === 'detail' && modal.item && (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-xs uppercase text-slate-500">Nama</span>
                 <p className="font-semibold">{modal.item.name}</p>
@@ -428,7 +428,7 @@ const Tendik = ({
             <p className="text-slate-600">
               Yakin ingin menghapus tendik <span className="font-semibold">{modal.item.name}</span>?
             </p>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">Hapus</Button>
               <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
             </div>
@@ -451,7 +451,7 @@ const Tendik = ({
               onChange={(e) => setImportFile(e.target.files?.[0] || null)}
             />
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button type="button" onClick={handleImport} className="flex-1" disabled={!importFile}>
                 Import Data
               </Button>

@@ -6,6 +6,8 @@ const {
   getAttendanceMeetingDetail,
   getAttendanceSummary,
   listAttendance,
+  listAttendanceManualOptions,
+  listAttendanceMeetingSlots,
   listAttendanceMeetings,
   updateAttendance,
   updateAttendanceMeetingEntries,
@@ -37,6 +39,27 @@ const listMeetings = async (req, res) => {
     return res.json(data);
   } catch (err) {
     return handleControllerError(res, err, 'Gagal memuat pertemuan presensi');
+  }
+};
+
+const listMeetingSlots = async (req, res) => {
+  try {
+    const data = await listAttendanceMeetingSlots({
+      date: req.query.date,
+      rombelId: req.query.rombelId
+    });
+    return res.json(data);
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal memuat opsi jam pertemuan');
+  }
+};
+
+const listManualOptions = async (req, res) => {
+  try {
+    const data = await listAttendanceManualOptions({ user: req.user });
+    return res.json(data);
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal memuat opsi pertemuan manual');
   }
 };
 
@@ -131,6 +154,8 @@ const summary = async (req, res) => {
 
 module.exports = {
   list,
+  listManualOptions,
+  listMeetingSlots,
   listMeetings,
   detailMeeting,
   createMeeting,

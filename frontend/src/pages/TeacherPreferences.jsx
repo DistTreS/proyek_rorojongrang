@@ -91,6 +91,10 @@ const TeacherPreferences = () => {
 
   const teacherMap = useMemo(() => new Map(teachers.map(item => [item.id, item])), [teachers]);
   const periodMap = useMemo(() => new Map(periods.map(item => [item.id, item])), [periods]);
+  const activePeriodId = useMemo(() => {
+    const active = periods.find((period) => period.isActive);
+    return active ? String(active.id) : '';
+  }, [periods]);
 
   const updateForm = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 
@@ -106,6 +110,10 @@ const TeacherPreferences = () => {
 
   const openCreate = () => {
     resetForm();
+    setForm({
+      ...emptyForm,
+      periodId: filterPeriodId || activePeriodId || ''
+    });
     setModal({ type: 'create' });
   };
 
@@ -150,6 +158,10 @@ const TeacherPreferences = () => {
       setError('Guru, periode, jam mulai, dan jam selesai wajib diisi');
       return;
     }
+    if (!teachers.length) {
+      setError('Belum ada data guru aktif yang bisa dipilih untuk preferensi');
+      return;
+    }
     if (form.startTime >= form.endTime) {
       setError('Jam selesai harus setelah jam mulai');
       return;
@@ -180,7 +192,7 @@ const TeacherPreferences = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-4xl font-semibold text-slate-900">Preferensi Penjadwalan Guru</h1>
           <p className="text-slate-600 mt-1">Kelola preferensi dan larangan jadwal guru per periode</p>
@@ -193,6 +205,12 @@ const TeacherPreferences = () => {
       {error && (
         <Card className="p-4 border-red-200 bg-red-50 text-red-700">
           {error}
+        </Card>
+      )}
+
+      {!teachers.length && !loading && (
+        <Card className="p-4 border-amber-200 bg-amber-50 text-amber-800">
+          Belum ada data tendik dengan role guru. Tambahkan/atur role guru terlebih dahulu.
         </Card>
       )}
 
@@ -240,7 +258,7 @@ const TeacherPreferences = () => {
                     {item.preferenceType === 'prefer' ? 'Preferensi' : 'Hindari'}
                   </Badge>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" size="sm" onClick={() => openDetail(item)}>
                     Detail
                   </Button>
@@ -283,7 +301,7 @@ const TeacherPreferences = () => {
       >
         {(modal.type === 'create' || modal.type === 'edit') && (
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Guru</label>
                 <Select value={form.teacherId} onChange={e => updateForm('teacherId', e.target.value)} required>
@@ -300,7 +318,7 @@ const TeacherPreferences = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Hari</label>
                 <Select value={form.dayOfWeek} onChange={e => updateForm('dayOfWeek', e.target.value)}>
@@ -315,7 +333,7 @@ const TeacherPreferences = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Jam Mulai</label>
                 <Input type="time" value={form.startTime} onChange={e => updateForm('startTime', e.target.value)} required />
@@ -336,7 +354,7 @@ const TeacherPreferences = () => {
               />
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button type="submit" variant="primary" size="lg" className="flex-1">
                 {editingId ? 'Simpan Perubahan' : 'Tambah Preferensi'}
               </Button>
@@ -349,7 +367,7 @@ const TeacherPreferences = () => {
 
         {modal.type === 'detail' && modal.item && (
           <div className="space-y-4 text-sm">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div><span className="text-xs uppercase text-slate-500">Guru</span><p className="font-semibold">{teacherMap.get(modal.item.teacherId)?.name || '-'}</p></div>
               <div><span className="text-xs uppercase text-slate-500">Periode</span><p className="font-semibold">{periodMap.get(modal.item.periodId)?.name || '-'}</p></div>
               <div><span className="text-xs uppercase text-slate-500">Hari</span><p className="font-semibold">{dayOptions.find(d => d.value === modal.item.dayOfWeek)?.label}</p></div>
@@ -375,7 +393,7 @@ const TeacherPreferences = () => {
             <p className="text-slate-600">
               Yakin ingin menghapus preferensi untuk <span className="font-semibold">{teacherMap.get(modal.item.teacherId)?.name || 'guru ini'}</span>?
             </p>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">Hapus</Button>
               <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
             </div>

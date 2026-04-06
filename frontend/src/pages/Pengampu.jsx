@@ -194,7 +194,7 @@ const Pengampu = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-4xl font-semibold text-slate-900">Pengampu Mata Pelajaran</h1>
           <p className="text-slate-600 mt-1">Atur guru, mapel, rombel, periode, dan jam mingguan</p>
@@ -259,7 +259,7 @@ const Pengampu = () => {
                 <div className="text-sm font-semibold text-slate-900">
                   {assignment.weeklyHours}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" size="sm" onClick={() => openDetail(assignment)}>
                     Detail
                   </Button>
@@ -305,7 +305,7 @@ const Pengampu = () => {
       >
         {modal.type === 'detail' && modal.item && (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-xs uppercase text-slate-500">Guru</span>
                 <p className="font-semibold">{teacherMap.get(modal.item.teacherId)?.name || modal.item.teacher?.name || '-'}</p>
@@ -338,7 +338,7 @@ const Pengampu = () => {
 
         {(modal.type === 'create' || modal.type === 'edit') && (
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Periode</label>
                 <Select
@@ -368,7 +368,7 @@ const Pengampu = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Mapel</label>
                 <Select
@@ -415,7 +415,7 @@ const Pengampu = () => {
               />
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button type="submit" variant="primary" size="lg" className="flex-1">
                 {editingId ? 'Simpan Perubahan' : 'Tambah'}
               </Button>
@@ -431,7 +431,7 @@ const Pengampu = () => {
             <p className="text-slate-600">
               Yakin ingin menghapus data pengampu ini?
             </p>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">
                 Hapus
               </Button>

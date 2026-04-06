@@ -7,6 +7,8 @@ const authorize = require('../middleware/authorize');
 const { ACCESS } = require('../config/rbac');
 const {
   list,
+  listManualOptions,
+  listMeetingSlots,
   listMeetings,
   detailMeeting,
   createMeeting,
@@ -39,6 +41,8 @@ const upload = multer({ storage });
 
 router.get('/', auth, authorize(ACCESS.attendance.view), list);
 router.get('/summary', auth, authorize(ACCESS.attendance.view), summary);
+router.get('/manual-options', auth, authorize(ACCESS.attendance.manage), listManualOptions);
+router.get('/meeting-slots', auth, authorize(ACCESS.attendance.manage), listMeetingSlots);
 router.get('/meetings', auth, authorize(ACCESS.attendance.view), listMeetings);
 router.get('/meetings/:meetingId', auth, authorize(ACCESS.attendance.view), detailMeeting);
 router.post('/meetings', auth, authorize(ACCESS.attendance.manage), createMeeting);
