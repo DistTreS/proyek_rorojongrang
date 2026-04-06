@@ -15,6 +15,7 @@ const {
 const { getTeacherContext, isGuruUser } = require('./teacherOperationalService');
 const { paginateItems, parsePagination } = require('../utils/pagination');
 const { serviceError } = require('../utils/serviceError');
+const { ensureDateOrder, normalizeDateOnly } = require('../utils/temporalValidation');
 
 const buildTeacherMeetingScope = (teacherId) => ({
   [Op.or]: [
@@ -131,7 +132,7 @@ const listAttendance = async (query = {}) => {
     timeSlotId
   } = query;
   const where = {};
-  if (date) where.date = date;
+  if (date) where.date = normalizeDateOnly(date, 'Tanggal');
   if (rombelId) where.rombelId = rombelId;
   if (studentId) where.studentId = studentId;
   if (timeSlotId) where.timeSlotId = timeSlotId;
@@ -166,6 +167,7 @@ const createAttendance = async ({ user, payload }) => {
   if (!studentId || !rombelId || !timeSlotId || !date || !status) {
     throw serviceError(400, 'Data presensi belum lengkap');
   }
+  const normalizedDate = normalizeDateOnly(date, 'Tanggal presensi');
 
   const [student, rombel, timeSlot] = await Promise.all([
     Student.findByPk(studentId),
@@ -178,7 +180,7 @@ const createAttendance = async ({ user, payload }) => {
   }
 
   const exists = await Attendance.findOne({
-    where: { studentId, timeSlotId, date }
+    where: { studentId, timeSlotId, date: normalizedDate }
   });
   if (exists) {
     throw serviceError(409, 'Presensi sudah ada');
@@ -188,7 +190,7 @@ const createAttendance = async ({ user, payload }) => {
     studentId,
     rombelId,
     timeSlotId,
-    date,
+    date: normalizedDate,
     status,
     note: note || null
   });
@@ -213,7 +215,7 @@ const listAttendanceMeetings = async (query = {}) => {
     subjectId
   } = query;
   const where = { meetingId: { [Op.ne]: null } };
-  if (date) where.date = date;
+  if (date) where.date = normalizeDateOnly(date, 'Tanggal');
   if (rombelId) where.rombelId = rombelId;
   if (subjectId) where.subjectId = subjectId;
 
@@ -242,8 +244,9 @@ const listAttendanceMeetingSlots = async ({ date, rombelId }) => {
   if (!date || !rombelId) {
     throw serviceError(400, 'date dan rombelId wajib diisi');
   }
+  const normalizedDate = normalizeDateOnly(date, 'Tanggal pertemuan');
 
-  const meetingDay = getMeetingDayOfWeek(date);
+  const meetingDay = getMeetingDayOfWeek(normalizedDate);
   if (!meetingDay) {
     throw serviceError(400, 'Tanggal pertemuan tidak valid atau berada di luar hari belajar');
   }
@@ -391,6 +394,7 @@ const createAttendanceMeeting = async ({ user, payload }) => {
   if (!date || !rombelId || !subjectId || !Array.isArray(timeSlotIds) || !timeSlotIds.length) {
     throw serviceError(400, 'Data pertemuan belum lengkap');
   }
+  const normalizedDate = normalizeDateOnly(date, 'Tanggal pertemuan');
 
   const meetingMode = normalizeMeetingMode(mode);
   const normalizedRombelId = Number(rombelId);
@@ -406,7 +410,7 @@ const createAttendanceMeeting = async ({ user, payload }) => {
   }
 
   const uniqueTimeSlotIds = [...new Set(timeSlotIds.map((id) => Number(id)).filter(Number.isInteger))];
-  const meetingDay = getMeetingDayOfWeek(date);
+  const meetingDay = getMeetingDayOfWeek(normalizedDate);
   if (!meetingDay) {
     throw serviceError(400, 'Tanggal pertemuan tidak valid atau berada di luar hari belajar');
   }
@@ -489,7 +493,7 @@ const createAttendanceMeeting = async ({ user, payload }) => {
           subjectId: normalizedSubjectId,
           teacherId: teacher.id,
           substituteTeacherId: substitute?.id || null,
-          date,
+          date: normalizedDate,
           status: 'hadir',
           note: null,
           meetingNote: meetingNote || null,
@@ -622,10 +626,15 @@ const getAttendanceSummary = async ({ user, dateFrom, dateTo }) => {
   if (!dateFrom || !dateTo) {
     throw serviceError(400, 'dateFrom dan dateTo wajib diisi');
   }
+  const range = ensureDateOrder(dateFrom, dateTo, {
+    startLabel: 'dateFrom',
+    endLabel: 'dateTo',
+    errorMessage: 'dateTo harus setelah atau sama dengan dateFrom'
+  });
 
   const where = {
     date: {
-      [Op.between]: [dateFrom, dateTo]
+      [Op.between]: [range.startDate, range.endDate]
     }
   };
   const teacher = await getRequestTeacher(user);

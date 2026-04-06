@@ -23,6 +23,7 @@
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.9.4",
+    "pdfkit": "^0.15.2",
     "proyek-rorojongrang": "file:..",
     "sequelize": "^6.37.3",
     "uuid": "^9.0.1",

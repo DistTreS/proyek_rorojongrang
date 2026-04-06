@@ -7,19 +7,37 @@ import Select from '../components/ui/Select';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Pagination from '../components/ui/Pagination';
+import { useAuth } from '../context/useAuth';
 import {
   buildPageParams,
   DEFAULT_PAGE_SIZE,
   fetchAllPages,
   normalizePaginatedResponse
 } from '../utils/pagination';
+import { isValidDateOnly } from '../utils/temporalValidation';
 
 const categoryOptions = [
   { value: 'prestasi', label: 'Prestasi' },
   { value: 'masalah', label: 'Masalah' }
 ];
 
+const decodeJwtPayload = (token) => {
+  if (!token) return null;
+  const parts = String(token).split('.');
+  if (parts.length < 2) return null;
+
+  try {
+    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const decoded = atob(padded);
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+};
+
 const CatatanSiswa = () => {
+  const { accessToken } = useAuth();
   const [notes, setNotes] = useState([]);
   const [students, setStudents] = useState([]);
   const [form, setForm] = useState({ studentId: '', category: 'prestasi', note: '', date: '' });
@@ -65,7 +83,7 @@ const CatatanSiswa = () => {
       setPage(normalized.page);
       setStudents(studentRes || []);
     } catch (err) {
-      setError('Gagal memuat data');
+      setError(err.response?.data?.message || 'Gagal memuat data');
     } finally {
       setLoading(false);
     }
@@ -77,6 +95,12 @@ const CatatanSiswa = () => {
   }, []);
 
   const studentMap = useMemo(() => new Map(students.map(s => [s.id, s])), [students]);
+  const currentUserId = useMemo(() => {
+    const payload = decodeJwtPayload(accessToken);
+    const sub = Number(payload?.sub);
+    return Number.isInteger(sub) ? sub : null;
+  }, [accessToken]);
+  const canModifyNote = (note) => Number(note?.author?.id) === currentUserId;
 
   const filteredStudents = students.filter(student => 
     !studentQuery || student.name?.toLowerCase().includes(studentQuery.toLowerCase())
@@ -100,6 +124,10 @@ const CatatanSiswa = () => {
     e.preventDefault();
     if (!form.studentId || !form.note.trim()) {
       setError('Siswa dan catatan wajib diisi');
+      return;
+    }
+    if (!form.date || !isValidDateOnly(form.date)) {
+      setError('Tanggal catatan tidak valid');
       return;
     }
 
@@ -163,6 +191,12 @@ const CatatanSiswa = () => {
         </Button>
       </div>
 
+      {error && (
+        <Card className="p-4 border-red-200 bg-red-50 text-red-700">
+          {error}
+        </Card>
+      )}
+
       {/* Filters */}
       <Card className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -206,6 +240,11 @@ const CatatanSiswa = () => {
 
       {/* List Catatan */}
       <div className="space-y-4">
+        {loading && (
+          <Card className="p-4 text-sm text-slate-500">
+            Memuat catatan siswa...
+          </Card>
+        )}
         {notes.map(note => (
           <Card key={note.id} className="p-6 hover:shadow-md transition-shadow">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -227,12 +266,16 @@ const CatatanSiswa = () => {
               <Button variant="secondary" size="sm" onClick={() => setModal({ type: 'detail', item: note })}>
                 Detail
               </Button>
-              <Button variant="secondary" size="sm" onClick={() => handleEdit(note)}>
-                Edit
-              </Button>
-              <Button variant="danger" size="sm" onClick={() => handleDelete(note)}>
-                Hapus
-              </Button>
+              {canModifyNote(note) && (
+                <>
+                  <Button variant="secondary" size="sm" onClick={() => handleEdit(note)}>
+                    Edit
+                  </Button>
+                  <Button variant="danger" size="sm" onClick={() => handleDelete(note)}>
+                    Hapus
+                  </Button>
+                </>
+              )}
             </div>
           </Card>
         ))}

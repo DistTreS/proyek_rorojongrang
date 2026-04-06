@@ -1,8 +1,7 @@
-const { Op } = require('sequelize');
 const { StudentNote, Student, User } = require('../models');
-const { ensureStudentAccessible, getAccessibleStudentIds } = require('./teacherOperationalService');
 const { paginateItems, parsePagination } = require('../utils/pagination');
 const { serviceError } = require('../utils/serviceError');
+const { normalizeDateOnly } = require('../utils/temporalValidation');
 
 const noteInclude = [
   { model: Student, attributes: ['id', 'nis', 'name'] },
@@ -18,40 +17,29 @@ const formatNote = (note) => ({
   date: note.date
 });
 
-const buildScopedStudentWhere = async (user, studentId) => {
-  const accessibleStudentIds = await getAccessibleStudentIds(user);
-  if (accessibleStudentIds === null) {
-    return studentId ? Number(studentId) : undefined;
-  }
-
-  if (!accessibleStudentIds.length) {
+const parseOptionalStudentId = (studentId) => {
+  if (studentId === undefined || studentId === null || studentId === '') {
     return null;
   }
-
-  if (studentId) {
-    return accessibleStudentIds.includes(Number(studentId)) ? Number(studentId) : null;
+  const normalized = Number(studentId);
+  if (!Number.isInteger(normalized) || normalized <= 0) {
+    throw serviceError(400, 'studentId tidak valid');
   }
-
-  return { [Op.in]: accessibleStudentIds };
+  return normalized;
 };
 
 const listStudentNotes = async (query = {}) => {
   const pagination = parsePagination(query);
   const {
-    user,
     studentId,
     category,
     search
   } = query;
   const where = {};
   if (category) where.category = category;
-
-  const scopedStudentWhere = await buildScopedStudentWhere(user, studentId);
-  if (scopedStudentWhere === null) {
-    return [];
-  }
-  if (scopedStudentWhere !== undefined) {
-    where.studentId = scopedStudentWhere;
+  const normalizedStudentId = parseOptionalStudentId(studentId);
+  if (normalizedStudentId) {
+    where.studentId = normalizedStudentId;
   }
 
   const notes = await StudentNote.findAll({
@@ -78,55 +66,67 @@ const createStudentNote = async ({ user, payload }) => {
   if (!studentId || !category || !note || !date) {
     throw serviceError(400, 'Data catatan belum lengkap');
   }
+  const actorId = Number(user?.id || user?.sub);
+  if (!Number.isInteger(actorId)) {
+    throw serviceError(401, 'Unauthorized');
+  }
+  const normalizedDate = normalizeDateOnly(date, 'Tanggal catatan');
 
-  const student = await Student.findByPk(studentId);
-  if (!student) {
+  const studentExists = await Student.findByPk(studentId);
+  if (!studentExists) {
     throw serviceError(400, 'Siswa tidak valid');
   }
 
-  await ensureStudentAccessible(user, studentId);
-
   const record = await StudentNote.create({
     studentId,
-    authorId: user.sub,
+    authorId: actorId,
     category,
     note,
-    date
+    date: normalizedDate
   });
 
-  return {
-    id: record.id,
-    student,
-    author: { id: user.sub },
-    category: record.category,
-    note: record.note,
-    date: record.date
-  };
+  const created = await StudentNote.findByPk(record.id, { include: noteInclude });
+  return formatNote(created);
 };
 
 const updateStudentNote = async ({ user, id, payload }) => {
+  const actorId = Number(user?.id || user?.sub);
+  if (!Number.isInteger(actorId)) {
+    throw serviceError(401, 'Unauthorized');
+  }
+
   const record = await StudentNote.findByPk(id, { include: noteInclude });
   if (!record) {
     throw serviceError(404, 'Catatan tidak ditemukan');
   }
 
-  await ensureStudentAccessible(user, record.studentId);
+  if (Number(record.authorId) !== actorId) {
+    throw serviceError(403, 'Catatan hanya bisa diubah oleh pembuatnya');
+  }
 
   if (payload.category !== undefined) record.category = payload.category;
   if (payload.note !== undefined) record.note = payload.note;
-  if (payload.date !== undefined) record.date = payload.date;
+  if (payload.date !== undefined) record.date = normalizeDateOnly(payload.date, 'Tanggal catatan');
   await record.save();
 
   return formatNote(record);
 };
 
 const deleteStudentNote = async ({ user, id }) => {
+  const actorId = Number(user?.id || user?.sub);
+  if (!Number.isInteger(actorId)) {
+    throw serviceError(401, 'Unauthorized');
+  }
+
   const record = await StudentNote.findByPk(id);
   if (!record) {
     throw serviceError(404, 'Catatan tidak ditemukan');
   }
 
-  await ensureStudentAccessible(user, record.studentId);
+  if (Number(record.authorId) !== actorId) {
+    throw serviceError(403, 'Catatan hanya bisa dihapus oleh pembuatnya');
+  }
+
   await record.destroy();
   return { message: 'Catatan dihapus' };
 };

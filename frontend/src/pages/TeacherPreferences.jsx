@@ -13,6 +13,7 @@ import {
   fetchAllPages,
   normalizePaginatedResponse
 } from '../utils/pagination';
+import { isValidTimeRange } from '../utils/temporalValidation';
 
 const dayOptions = [
   { value: 1, label: 'Senin' },
@@ -162,7 +163,7 @@ const TeacherPreferences = () => {
       setError('Belum ada data guru aktif yang bisa dipilih untuk preferensi');
       return;
     }
-    if (form.startTime >= form.endTime) {
+    if (!isValidTimeRange(form.startTime, form.endTime)) {
       setError('Jam selesai harus setelah jam mulai');
       return;
     }
@@ -336,11 +337,23 @@ const TeacherPreferences = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Jam Mulai</label>
-                <Input type="time" value={form.startTime} onChange={e => updateForm('startTime', e.target.value)} required />
+                <Input
+                  type="time"
+                  value={form.startTime}
+                  onChange={e => updateForm('startTime', e.target.value)}
+                  max={form.endTime || undefined}
+                  required
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Jam Selesai</label>
-                <Input type="time" value={form.endTime} onChange={e => updateForm('endTime', e.target.value)} required />
+                <Input
+                  type="time"
+                  value={form.endTime}
+                  onChange={e => updateForm('endTime', e.target.value)}
+                  min={form.startTime || undefined}
+                  required
+                />
               </div>
             </div>
 

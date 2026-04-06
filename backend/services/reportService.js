@@ -4,6 +4,7 @@ const { Attendance, Student, Rombel, TimeSlot, Subject, Tendik } = require('../m
 const { getTeacherContext, isGuruScopedUser } = require('./teacherOperationalService');
 const { paginateItems, parsePagination } = require('../utils/pagination');
 const { serviceError } = require('../utils/serviceError');
+const { ensureDateOrder } = require('../utils/temporalValidation');
 
 const DAY_LABELS = Object.freeze({
   1: 'Senin',
@@ -32,12 +33,25 @@ const GURU_ALLOWED_REPORT_TYPES = new Set([
   REPORT_TYPES.rombels
 ]);
 
+const DAILY_STATUS_META = Object.freeze({
+  hadir_penuh: 'Hadir Penuh',
+  izin_penuh: 'Izin Penuh',
+  sakit_penuh: 'Sakit Penuh',
+  alpa_penuh: 'Alpa Penuh',
+  parsial: 'Parsial (termasuk cabut)',
+  campuran: 'Campuran'
+});
+
 const ensureDateRange = ({ dateFrom, dateTo }) => {
   if (!dateFrom || !dateTo) {
     throw serviceError(400, 'dateFrom dan dateTo wajib diisi');
   }
 
-  return { dateFrom, dateTo };
+  return ensureDateOrder(dateFrom, dateTo, {
+    startLabel: 'dateFrom',
+    endLabel: 'dateTo',
+    errorMessage: 'dateTo harus setelah atau sama dengan dateFrom'
+  });
 };
 
 const normalizeReportType = (type) => {
@@ -91,12 +105,56 @@ const fetchAttendanceRows = async (where) => {
   });
 };
 
+const summarizeDailyStatus = ({ hadir, izin, sakit, alpa, total }) => {
+  if (!total) {
+    return {
+      code: 'campuran',
+      label: DAILY_STATUS_META.campuran
+    };
+  }
+
+  if (hadir === total) {
+    return {
+      code: 'hadir_penuh',
+      label: DAILY_STATUS_META.hadir_penuh
+    };
+  }
+  if (izin === total) {
+    return {
+      code: 'izin_penuh',
+      label: DAILY_STATUS_META.izin_penuh
+    };
+  }
+  if (sakit === total) {
+    return {
+      code: 'sakit_penuh',
+      label: DAILY_STATUS_META.sakit_penuh
+    };
+  }
+  if (alpa === total) {
+    return {
+      code: 'alpa_penuh',
+      label: DAILY_STATUS_META.alpa_penuh
+    };
+  }
+  if (alpa > 0 && (hadir > 0 || izin > 0 || sakit > 0)) {
+    return {
+      code: 'parsial',
+      label: DAILY_STATUS_META.parsial
+    };
+  }
+  return {
+    code: 'campuran',
+    label: DAILY_STATUS_META.campuran
+  };
+};
+
 const paginateReportRows = (rows, query) => paginateItems(rows, parsePagination(query));
 
 const getGlobalReport = async ({ user, dateFrom, dateTo }) => {
   ensureReportTypeAllowed(user, REPORT_TYPES.global);
   const range = ensureDateRange({ dateFrom, dateTo });
-  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
+  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.startDate, range.endDate));
 
   const summary = { hadir: 0, izin: 0, sakit: 0, alpa: 0, total: 0 };
   rows.forEach((row) => {
@@ -111,7 +169,7 @@ const getReportByStudent = async (query) => {
   const { user, dateFrom, dateTo } = query;
   ensureReportTypeAllowed(user, REPORT_TYPES.students);
   const range = ensureDateRange({ dateFrom, dateTo });
-  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
+  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.startDate, range.endDate));
 
   const grouped = rows.reduce((acc, row) => {
     const id = row.studentId;
@@ -137,7 +195,7 @@ const getReportByRombel = async (query) => {
   const { user, dateFrom, dateTo } = query;
   ensureReportTypeAllowed(user, REPORT_TYPES.rombels);
   const range = ensureDateRange({ dateFrom, dateTo });
-  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
+  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.startDate, range.endDate));
 
   const grouped = rows.reduce((acc, row) => {
     const id = row.rombelId;
@@ -163,7 +221,7 @@ const getReportByTimeSlot = async (query) => {
   const { user, dateFrom, dateTo } = query;
   ensureReportTypeAllowed(user, REPORT_TYPES.slots);
   const range = ensureDateRange({ dateFrom, dateTo });
-  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
+  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.startDate, range.endDate));
 
   const grouped = rows.reduce((acc, row) => {
     const id = row.timeSlotId;
@@ -189,26 +247,53 @@ const getDailyReport = async (query) => {
   const { user, dateFrom, dateTo } = query;
   ensureReportTypeAllowed(user, REPORT_TYPES.daily);
   const range = ensureDateRange({ dateFrom, dateTo });
-  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
+  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.startDate, range.endDate));
 
   const grouped = rows.reduce((acc, row) => {
-    const date = row.date;
-    if (!acc[date]) {
-      acc[date] = { date, hadir: 0, izin: 0, sakit: 0, alpa: 0, total: 0 };
+    const key = `${row.date}::${row.studentId}`;
+    if (!acc[key]) {
+      acc[key] = {
+        date: row.date,
+        student: row.Student ? { id: row.Student.id, nis: row.Student.nis, name: row.Student.name } : null,
+        rombel: row.Rombel ? { id: row.Rombel.id, name: row.Rombel.name } : null,
+        hadir: 0,
+        izin: 0,
+        sakit: 0,
+        alpa: 0,
+        total: 0
+      };
     }
-    acc[date][row.status] += 1;
-    acc[date].total += 1;
+    acc[key][row.status] += 1;
+    acc[key].total += 1;
     return acc;
   }, {});
 
-  return paginateReportRows(Object.values(grouped), query);
+  const normalizedRows = Object.values(grouped)
+    .map((item) => {
+      const dayStatus = summarizeDailyStatus(item);
+      const effectivePresence = item.hadir + item.izin + item.sakit;
+      const attendanceRate = item.total ? Number(((effectivePresence / item.total) * 100).toFixed(2)) : 0;
+      return {
+        ...item,
+        dayStatus: dayStatus.code,
+        dayStatusLabel: dayStatus.label,
+        attendanceRate
+      };
+    })
+    .sort((a, b) => {
+      const dateDiff = String(a.date || '').localeCompare(String(b.date || ''));
+      if (dateDiff !== 0) return dateDiff;
+      return String(a.student?.name || '').localeCompare(String(b.student?.name || ''), 'id-ID');
+    });
+
+  return paginateReportRows(normalizedRows, query);
 };
 
 const getMonthlyReport = async (query) => {
   const { user, dateFrom, dateTo } = query;
   ensureReportTypeAllowed(user, REPORT_TYPES.monthly);
   const range = ensureDateRange({ dateFrom, dateTo });
-  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
+  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.startDate, range.endDate));
 
   const grouped = rows.reduce((acc, row) => {
     const month = row.date.slice(0, 7);
@@ -227,7 +312,7 @@ const getSemesterReport = async (query) => {
   const { user, dateFrom, dateTo } = query;
   ensureReportTypeAllowed(user, REPORT_TYPES.semester);
   const range = ensureDateRange({ dateFrom, dateTo });
-  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
+  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.startDate, range.endDate));
 
   const grouped = rows.reduce((acc, row) => {
     const [yearStr, monthStr] = row.date.split('-');
@@ -260,7 +345,7 @@ const getReportByTeacherSubject = async (query) => {
   const { user, dateFrom, dateTo } = query;
   ensureReportTypeAllowed(user, REPORT_TYPES.teacherSubject);
   const range = ensureDateRange({ dateFrom, dateTo });
-  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
+  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.startDate, range.endDate));
 
   const grouped = rows.reduce((acc, row) => {
     const teacher = row.SubstituteTeacher || row.Teacher;
@@ -294,11 +379,11 @@ const getReportByTeacherSubject = async (query) => {
 
 const getReportByDateRange = async ({ user, dateFrom, dateTo }) => {
   const range = ensureDateRange({ dateFrom, dateTo });
-  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.dateFrom, range.dateTo));
+  const rows = await fetchAttendanceRows(await buildReportScopeWhere(user, range.startDate, range.endDate));
 
   return {
-    dateFrom: range.dateFrom,
-    dateTo: range.dateTo,
+    dateFrom: range.startDate,
+    dateTo: range.endDate,
     totalRecords: rows.length
   };
 };
@@ -341,6 +426,12 @@ const resolveReportRowsForExport = (type, data) => {
     if (row.student) {
       mapped.NIS = row.student.nis || '-';
       mapped.Siswa = row.student.name || '-';
+    }
+    if (normalizedType === REPORT_TYPES.daily) {
+      mapped.Tanggal = row.date || '-';
+      mapped.Rombel = row.rombel?.name || '-';
+      mapped.StatusHarian = row.dayStatusLabel || '-';
+      mapped.PersentaseKehadiran = row.attendanceRate !== undefined ? `${row.attendanceRate}%` : '-';
     }
     if (row.rombel) {
       mapped.Rombel = row.rombel.name || '-';

@@ -13,6 +13,7 @@ const {
   User
 } = require('../models');
 const XLSX = require('xlsx');
+const PDFDocument = require('pdfkit');
 const { serviceError } = require('../utils/serviceError');
 const { validateScheduleGenerationData } = require('./scheduleValidationService');
 const { getTeacherContext, isGuruScopedUser } = require('./teacherOperationalService');
@@ -35,6 +36,12 @@ const DAY_LABELS = Object.freeze({
   4: 'Kamis',
   5: 'Jumat',
   6: 'Sabtu'
+});
+
+const EXPORT_DAY_ORDER = Object.freeze([1, 2, 3, 4, 5]);
+const SCHEDULE_SCOPES = Object.freeze({
+  GLOBAL: 'global',
+  PERSONAL: 'personal'
 });
 
 const scheduleInclude = [
@@ -121,6 +128,217 @@ const formatScheduleItem = (item) => ({
   room: item.room
 });
 
+const normalizeScheduleScope = (scope) => {
+  const normalized = String(scope || SCHEDULE_SCOPES.GLOBAL).trim().toLowerCase();
+  if (normalized === SCHEDULE_SCOPES.PERSONAL) {
+    return SCHEDULE_SCOPES.PERSONAL;
+  }
+  return SCHEDULE_SCOPES.GLOBAL;
+};
+
+const normalizeExportColumnLabels = (rombels) => {
+  const used = new Set();
+  return rombels.map((rombel) => {
+    const base = String(rombel?.name || `Rombel #${rombel?.id || '-'}`).trim() || `Rombel #${rombel?.id || '-'}`;
+    let label = base;
+    let suffix = 2;
+    while (used.has(label)) {
+      label = `${base} (${suffix})`;
+      suffix += 1;
+    }
+    used.add(label);
+    return { ...rombel, columnLabel: label };
+  });
+};
+
+const buildScheduleMatrixDataset = (items) => {
+  const rombelMap = new Map();
+  const rowMap = new Map();
+
+  items.forEach((item) => {
+    const day = Number(item.timeSlot?.dayOfWeek);
+    if (!EXPORT_DAY_ORDER.includes(day)) {
+      return;
+    }
+
+    const slotId = Number(item.timeSlot?.id || 0);
+    const startTime = item.timeSlot?.startTime || '';
+    const endTime = item.timeSlot?.endTime || '';
+    const label = item.timeSlot?.label || '';
+    const rowKey = `${day}::${slotId}::${startTime}::${endTime}::${label}`;
+
+    if (!rowMap.has(rowKey)) {
+      rowMap.set(rowKey, {
+        key: rowKey,
+        day,
+        slotId,
+        startTime,
+        endTime,
+        label,
+        cellEntries: new Map()
+      });
+    }
+
+    const rombelId = Number(item.teachingAssignment?.rombel?.id || item.rombelId || 0);
+    const rombelName = item.teachingAssignment?.rombel?.name || `Rombel #${rombelId || '-'}`;
+    if (!rombelMap.has(rombelId)) {
+      rombelMap.set(rombelId, { id: rombelId, name: rombelName });
+    }
+
+    const mapelName = item.teachingAssignment?.subject?.name || '-';
+    const teacherName = item.teachingAssignment?.teacher?.name || '-';
+    const cellValue = `${mapelName} / ${teacherName}`;
+    const rowRef = rowMap.get(rowKey);
+    if (!rowRef.cellEntries.has(rombelId)) {
+      rowRef.cellEntries.set(rombelId, []);
+    }
+    rowRef.cellEntries.get(rombelId).push(cellValue);
+  });
+
+  const rombels = normalizeExportColumnLabels(
+    [...rombelMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'id-ID'))
+  );
+
+  const rows = [...rowMap.values()]
+    .sort((a, b) => {
+      const dayDiff = a.day - b.day;
+      if (dayDiff !== 0) return dayDiff;
+      const startDiff = a.startTime.localeCompare(b.startTime);
+      if (startDiff !== 0) return startDiff;
+      const endDiff = a.endTime.localeCompare(b.endTime);
+      if (endDiff !== 0) return endDiff;
+      return a.slotId - b.slotId;
+    })
+    .map((row) => {
+      const dayLabel = DAY_LABELS[row.day] || `Hari ${row.day}`;
+      const rangeLabel = `${row.startTime || '--:--'} - ${row.endTime || '--:--'}`;
+      const slotLabel = row.label ? ` (${row.label})` : '';
+      const merged = {
+        Waktu: `${dayLabel} • ${rangeLabel}${slotLabel}`
+      };
+
+      rombels.forEach((rombel) => {
+        const entries = row.cellEntries.get(rombel.id) || [];
+        merged[rombel.columnLabel] = entries.length ? [...new Set(entries)].join('\n') : '-';
+      });
+
+      return merged;
+    });
+
+  if (!rows.length) {
+    return {
+      rombels,
+      rows: [{ Waktu: 'Tidak ada data jadwal untuk parameter yang dipilih' }]
+    };
+  }
+
+  return { rombels, rows };
+};
+
+const buildScheduleMatrixPdfBuffer = ({ rows, columnHeaders, title }) => new Promise((resolve, reject) => {
+  const firstColumnWidth = 190;
+  const regularColumnWidth = 150;
+  const pageWidth = Math.max(842, (firstColumnWidth + (columnHeaders.length * regularColumnWidth) + 48));
+  const pageHeight = 595;
+
+  const doc = new PDFDocument({
+    size: [pageWidth, pageHeight],
+    margin: 24
+  });
+  const chunks = [];
+  doc.on('data', (chunk) => chunks.push(chunk));
+  doc.on('end', () => resolve(Buffer.concat(chunks)));
+  doc.on('error', reject);
+
+  const columns = ['Waktu', ...columnHeaders];
+  const columnWidths = [firstColumnWidth, ...columnHeaders.map(() => regularColumnWidth)];
+  const rowPaddingX = 4;
+  const rowPaddingY = 4;
+  const footerGap = 24;
+  let cursorY = doc.page.margins.top;
+
+  const drawHeader = () => {
+    doc.fontSize(12).font('Helvetica-Bold').fillColor('#0f172a').text(title, doc.page.margins.left, cursorY);
+    cursorY += 22;
+    doc.fontSize(9).font('Helvetica').fillColor('#475569').text(
+      `Dihasilkan: ${new Date().toLocaleString('id-ID')}`,
+      doc.page.margins.left,
+      cursorY
+    );
+    cursorY += 18;
+
+    let x = doc.page.margins.left;
+    const headerHeight = 26;
+    columns.forEach((column, index) => {
+      const width = columnWidths[index];
+      doc
+        .save()
+        .lineWidth(0.5)
+        .fillColor('#e2e8f0')
+        .rect(x, cursorY, width, headerHeight)
+        .fillAndStroke('#e2e8f0', '#cbd5e1')
+        .restore();
+      doc
+        .fontSize(8)
+        .font('Helvetica-Bold')
+        .fillColor('#0f172a')
+        .text(column, x + rowPaddingX, cursorY + rowPaddingY, {
+          width: width - (rowPaddingX * 2),
+          align: 'left'
+        });
+      x += width;
+    });
+    cursorY += headerHeight;
+  };
+
+  const ensurePageCapacity = (height) => {
+    if ((cursorY + height) <= (doc.page.height - doc.page.margins.bottom - footerGap)) {
+      return;
+    }
+    doc.addPage({ size: [pageWidth, pageHeight], margin: 24 });
+    cursorY = doc.page.margins.top;
+    drawHeader();
+  };
+
+  drawHeader();
+
+  rows.forEach((row) => {
+    const values = columns.map((column) => String(row[column] ?? '-'));
+    const rowHeight = Math.max(24, ...values.map((value, index) => (
+      doc.heightOfString(value, {
+        width: columnWidths[index] - (rowPaddingX * 2),
+        align: 'left'
+      }) + (rowPaddingY * 2)
+    )));
+
+    ensurePageCapacity(rowHeight);
+
+    let x = doc.page.margins.left;
+    values.forEach((value, index) => {
+      const width = columnWidths[index];
+      doc
+        .save()
+        .lineWidth(0.5)
+        .fillColor('#ffffff')
+        .rect(x, cursorY, width, rowHeight)
+        .fillAndStroke('#ffffff', '#cbd5e1')
+        .restore();
+      doc
+        .fontSize(8)
+        .font('Helvetica')
+        .fillColor('#0f172a')
+        .text(value, x + rowPaddingX, cursorY + rowPaddingY, {
+          width: width - (rowPaddingX * 2),
+          align: 'left'
+        });
+      x += width;
+    });
+    cursorY += rowHeight;
+  });
+
+  doc.end();
+});
+
 const getNextVersionNumber = async (periodId, transaction) => {
   const latest = await ScheduleBatch.findOne({
     where: { periodId },
@@ -130,11 +348,16 @@ const getNextVersionNumber = async (periodId, transaction) => {
   return (latest?.versionNumber || 0) + 1;
 };
 
-const listScheduleBatches = async ({ periodId, status, user } = {}) => {
+const listScheduleBatches = async ({ periodId, status, scope, user } = {}) => {
   const where = {};
   if (periodId) where.periodId = ensurePeriodId(periodId);
-  const teacher = await getTeacherContext(user, { scopedOnly: true });
-  const normalizedStatus = ensureStatus(isGuruScopedUser(user) ? 'approved' : status);
+  const normalizedScope = normalizeScheduleScope(scope);
+  const teacher = await getTeacherContext(user, {
+    scopedOnly: normalizedScope !== SCHEDULE_SCOPES.PERSONAL
+  });
+  const applyTeacherScope = Boolean(teacher && normalizedScope === SCHEDULE_SCOPES.PERSONAL);
+  const forceApprovedStatus = isGuruScopedUser(user) || applyTeacherScope;
+  const normalizedStatus = ensureStatus(forceApprovedStatus ? 'approved' : status);
   if (normalizedStatus) where.status = normalizedStatus;
 
   const include = [
@@ -148,7 +371,7 @@ const listScheduleBatches = async ({ periodId, status, user } = {}) => {
     }
   ];
 
-  if (teacher) {
+  if (applyTeacherScope) {
     include.push({
       model: Schedule,
       attributes: ['id'],
@@ -170,16 +393,16 @@ const listScheduleBatches = async ({ periodId, status, user } = {}) => {
 
   const summaryMap = await collectBatchSummaries(
     batches.map((batch) => batch.id),
-    { teacherId: teacher?.id }
+    applyTeacherScope ? { teacherId: teacher.id } : {}
   );
 
-  const counts = teacher
+  const counts = applyTeacherScope
     ? await Schedule.findAll({
       attributes: ['batchId', [sequelize.fn('COUNT', sequelize.col('Schedule.id')), 'total']],
       include: [{
         model: TeachingAssignment,
         attributes: [],
-        where: { teacherId: teacher.id },
+        where: { teacherId: teacher?.id },
         required: true
       }],
       group: ['batchId'],
@@ -225,20 +448,28 @@ const resolveDefaultBatch = async ({ periodId, status } = {}) => {
   return batch;
 };
 
-const listScheduleItems = async ({ periodId, rombelId, batchId, status, user } = {}) => {
+const listScheduleItems = async ({ periodId, rombelId, batchId, status, scope, user } = {}) => {
   const where = {};
   const batchWhere = {};
-  const teacher = await getTeacherContext(user, { scopedOnly: true });
+  const normalizedScope = normalizeScheduleScope(scope);
+  const teacher = await getTeacherContext(user, {
+    scopedOnly: normalizedScope !== SCHEDULE_SCOPES.PERSONAL
+  });
+  const applyTeacherScope = Boolean(teacher && normalizedScope === SCHEDULE_SCOPES.PERSONAL);
+  const forceApprovedStatus = isGuruScopedUser(user) || applyTeacherScope;
 
-  if (teacher) {
+  if (forceApprovedStatus) {
     batchWhere.status = 'approved';
   }
 
   if (rombelId) where.rombelId = Number(rombelId);
 
   let targetBatchId = batchId ? Number(batchId) : null;
-  if (!targetBatchId && !teacher) {
-    const batch = await resolveDefaultBatch({ periodId, status });
+  if (!targetBatchId) {
+    const batch = await resolveDefaultBatch({
+      periodId,
+      status: forceApprovedStatus ? 'approved' : status
+    });
     targetBatchId = batch?.id || null;
   }
 
@@ -246,7 +477,7 @@ const listScheduleItems = async ({ periodId, rombelId, batchId, status, user } =
     where.batchId = targetBatchId;
   } else {
     if (periodId) batchWhere.periodId = ensurePeriodId(periodId);
-    const normalizedStatus = ensureStatus(teacher ? 'approved' : status);
+    const normalizedStatus = ensureStatus(forceApprovedStatus ? 'approved' : status);
     if (normalizedStatus) batchWhere.status = normalizedStatus;
   }
 
@@ -255,10 +486,10 @@ const listScheduleItems = async ({ periodId, rombelId, batchId, status, user } =
     include: scheduleInclude.map((entry) => (
       entry.model === ScheduleBatch
         ? { ...entry, where: Object.keys(batchWhere).length ? batchWhere : undefined }
-        : entry.model === TeachingAssignment && teacher
+        : entry.model === TeachingAssignment && applyTeacherScope
           ? {
             ...entry,
-            where: { teacherId: teacher.id }
+            where: { teacherId: teacher?.id }
           }
         : entry
     )),
@@ -273,10 +504,10 @@ const listScheduleItems = async ({ periodId, rombelId, batchId, status, user } =
   return schedules.map(formatScheduleItem);
 };
 
-const exportScheduleItems = async ({ periodId, rombelId, batchId, status, user, format } = {}) => {
+const exportScheduleItems = async ({ periodId, rombelId, batchId, status, scope, user, format } = {}) => {
   const normalizedFormat = String(format || 'xlsx').trim().toLowerCase();
-  if (!['xlsx', 'csv'].includes(normalizedFormat)) {
-    throw serviceError(400, 'Format export harus xlsx atau csv');
+  if (!['xlsx', 'pdf'].includes(normalizedFormat)) {
+    throw serviceError(400, 'Format export harus xlsx atau pdf');
   }
 
   const items = await listScheduleItems({
@@ -284,28 +515,14 @@ const exportScheduleItems = async ({ periodId, rombelId, batchId, status, user, 
     rombelId,
     batchId,
     status,
+    scope,
     user
   });
 
-  const rows = items.map((item) => ({
-    Batch: item.batch?.versionNumber ? `V${item.batch.versionNumber}` : '-',
-    StatusBatch: item.batch?.status || '-',
-    Periode: item.batch?.periodName || item.teachingAssignment?.period?.name || '-',
-    Hari: DAY_LABELS[item.timeSlot?.dayOfWeek] || item.timeSlot?.dayOfWeek || '-',
-    JamMulai: item.timeSlot?.startTime || '-',
-    JamSelesai: item.timeSlot?.endTime || '-',
-    LabelSlot: item.timeSlot?.label || '-',
-    Rombel: item.teachingAssignment?.rombel?.name || '-',
-    Mapel: item.teachingAssignment?.subject?.name || '-',
-    KodeMapel: item.teachingAssignment?.subject?.code || '-',
-    Guru: item.teachingAssignment?.teacher?.name || '-',
-    WeeklyHours: item.teachingAssignment?.weeklyHours ?? '-',
-    Ruang: item.room || '-'
-  }));
-
-  const worksheet = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Info: 'Tidak ada data jadwal' }]);
+  const matrixDataset = buildScheduleMatrixDataset(items);
+  const worksheet = XLSX.utils.json_to_sheet(matrixDataset.rows);
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Jadwal');
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Matriks Jadwal');
 
   const batchPart = items[0]?.batch?.versionNumber ? `v${items[0].batch.versionNumber}` : 'all';
   const periodPart = String(items[0]?.batch?.periodName || periodId || 'all')
@@ -313,12 +530,16 @@ const exportScheduleItems = async ({ periodId, rombelId, batchId, status, user, 
     .toLowerCase();
   const filename = `jadwal-${periodPart}-${batchPart}.${normalizedFormat}`;
 
-  if (normalizedFormat === 'csv') {
-    const csvText = XLSX.utils.sheet_to_csv(worksheet);
+  if (normalizedFormat === 'pdf') {
+    const buffer = await buildScheduleMatrixPdfBuffer({
+      rows: matrixDataset.rows,
+      columnHeaders: matrixDataset.rombels.map((rombel) => rombel.columnLabel),
+      title: `Matriks Jadwal ${items[0]?.batch?.periodName || ''}`.trim()
+    });
     return {
       filename,
-      mimeType: 'text/csv; charset=utf-8',
-      buffer: Buffer.from(csvText, 'utf8')
+      mimeType: 'application/pdf',
+      buffer
     };
   }
 

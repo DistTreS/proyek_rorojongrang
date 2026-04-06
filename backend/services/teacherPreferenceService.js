@@ -8,6 +8,7 @@ const {
   ensureAcademicPeriod,
   ensureDayOfWeek,
   ensureGuruTendik,
+  ensureTimeRange,
   formatPeriodSummary,
   formatTeacherSummary,
   normalizeEnumValue,
@@ -65,9 +66,7 @@ const validateTeacherPreferenceInput = async (
   const normalizedTeacherId = parseInteger(teacherId, 'Guru');
   const normalizedStartTime = normalizeTimeString(startTime, 'Jam mulai');
   const normalizedEndTime = normalizeTimeString(endTime, 'Jam selesai');
-  if (normalizedStartTime >= normalizedEndTime) {
-    throw serviceError(400, 'Jam selesai harus setelah jam mulai');
-  }
+  ensureTimeRange(normalizedStartTime, normalizedEndTime);
 
   const [teacher, period] = await Promise.all([
     ensureGuruTendik(normalizedTeacherId),

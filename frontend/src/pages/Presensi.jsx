@@ -11,6 +11,7 @@ import {
   DEFAULT_PAGE_SIZE,
   normalizePaginatedResponse
 } from '../utils/pagination';
+import { isValidDateOnly } from '../utils/temporalValidation';
 
 const statusOptions = [
   { value: 'hadir', label: 'Hadir' },
@@ -91,7 +92,11 @@ const Presensi = () => {
             pageSize: DEFAULT_PAGE_SIZE
           })
         }),
-        api.get('/schedule')
+        api.get('/schedule', {
+          params: {
+            scope: 'personal'
+          }
+        })
       ]);
       const normalized = normalizePaginatedResponse(meetingRes.data);
       setMeetings(normalized.items || []);
@@ -175,6 +180,11 @@ const Presensi = () => {
     try {
       const isManualMeeting = meetingForm.mode === 'manual';
       const assignment = assignmentMap.get(Number(meetingForm.teachingAssignmentId));
+
+      if (!meetingForm.date || !isValidDateOnly(meetingForm.date)) {
+        setError('Tanggal pertemuan tidak valid');
+        return;
+      }
 
       if (!meetingForm.timeSlotIds.length) {
         setError('Pilih minimal satu jam pelajaran');

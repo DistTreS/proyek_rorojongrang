@@ -157,10 +157,12 @@ export const APP_NAV_ITEMS = Object.freeze([
     path: '/jadwal',
     label: 'Generate Jadwal',
     labelByRole: {
-      [ROLES.GURU]: 'Lihat Jadwal'
+      [ROLES.GURU]: 'Lihat Jadwal',
+      [ROLES.STAFF_TU]: 'Lihat Jadwal',
+      [ROLES.KEPALA_SEKOLAH]: 'Lihat Jadwal'
     },
     section: 'scheduling',
-    roles: [ROLES.WAKASEK, ROLES.GURU],
+    roles: ROLE_LIST,
     pageKey: 'jadwal',
     showInNav: true,
     summary: 'Generate atau lihat jadwal pelajaran mingguan.',
@@ -169,7 +171,9 @@ export const APP_NAV_ITEMS = Object.freeze([
       pageDescription: 'Generate otomatis dengan CP-SAT + GA dan lihat jadwal mingguan.'
     },
     summaryByRole: {
-      [ROLES.GURU]: 'Lihat jadwal mengajar resmi yang sudah disetujui.'
+      [ROLES.GURU]: 'Lihat jadwal resmi dengan opsi scope global atau jadwal yang terkait dengan Anda.',
+      [ROLES.STAFF_TU]: 'Lihat jadwal resmi global yang sudah disetujui.',
+      [ROLES.KEPALA_SEKOLAH]: 'Lihat jadwal resmi global yang sudah disetujui.'
     }
   },
   {
@@ -204,10 +208,10 @@ export const APP_NAV_ITEMS = Object.freeze([
     path: '/catatan',
     label: 'Catatan Siswa',
     section: 'operational',
-    roles: [ROLES.GURU],
+    roles: ROLE_LIST,
     pageKey: 'catatan',
     showInNav: true,
-    summary: 'Kelola catatan prestasi dan masalah siswa.'
+    summary: 'Lihat catatan siswa lintas kelas; edit/hapus hanya catatan milik Anda.'
   },
   {
     key: 'reports',

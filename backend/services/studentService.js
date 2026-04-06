@@ -4,6 +4,7 @@ const { sequelize, Student, Rombel } = require('../models');
 const { paginateItems, parsePagination } = require('../utils/pagination');
 const { serviceError } = require('../utils/serviceError');
 const { getAccessibleStudentIds } = require('./teacherOperationalService');
+const { normalizeOptionalDateOnly } = require('../utils/temporalValidation');
 
 const normalizeRow = (row) => {
   const normalized = {};
@@ -145,7 +146,7 @@ const createStudent = async (payload) => {
   const nis = String(payload.nis || '').trim();
   const name = String(payload.name || '').trim();
   const gender = payload.gender || null;
-  const birthDate = payload.birthDate || null;
+  const birthDate = normalizeOptionalDateOnly(payload.birthDate, 'Tanggal lahir');
   const rombelIds = Array.isArray(payload.rombelIds) ? payload.rombelIds : [];
 
   if (!nis || !name) {
@@ -199,7 +200,9 @@ const updateStudent = async (id, payload) => {
     if (payload.nis !== undefined) student.nis = nextNis;
     if (payload.name !== undefined) student.name = String(payload.name || '').trim();
     if (payload.gender !== undefined) student.gender = payload.gender || null;
-    if (payload.birthDate !== undefined) student.birthDate = payload.birthDate || null;
+    if (payload.birthDate !== undefined) {
+      student.birthDate = normalizeOptionalDateOnly(payload.birthDate, 'Tanggal lahir');
+    }
     await student.save({ transaction });
 
     if (Array.isArray(payload.rombelIds)) {

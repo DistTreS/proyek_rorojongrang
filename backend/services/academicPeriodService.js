@@ -1,6 +1,7 @@
 const { sequelize, AcademicPeriod } = require('../models');
 const { paginateItems, parsePagination } = require('../utils/pagination');
 const { serviceError } = require('../utils/serviceError');
+const { ensureDateOrder, normalizeOptionalDateOnly } = require('../utils/temporalValidation');
 
 const formatPeriod = (period) => ({
   id: period.id,
@@ -16,13 +17,27 @@ const validatePeriodInput = ({ name, startDate, endDate, semester }, { partial =
     throw serviceError(400, 'Nama, tanggal mulai, tanggal akhir, dan semester wajib diisi');
   }
 
+  const normalizedStartDate = normalizeOptionalDateOnly(startDate, 'Tanggal mulai');
+  const normalizedEndDate = normalizeOptionalDateOnly(endDate, 'Tanggal akhir');
+
   if (semester !== undefined && !['ganjil', 'genap'].includes(semester)) {
     throw serviceError(400, 'Semester tidak valid');
   }
 
-  if (startDate && endDate && startDate > endDate) {
-    throw serviceError(400, 'Tanggal akhir harus setelah atau sama dengan tanggal mulai');
+  if (normalizedStartDate && normalizedEndDate) {
+    ensureDateOrder(normalizedStartDate, normalizedEndDate, {
+      startLabel: 'Tanggal mulai',
+      endLabel: 'Tanggal akhir',
+      errorMessage: 'Tanggal akhir harus setelah atau sama dengan tanggal mulai'
+    });
   }
+
+  return {
+    name: name !== undefined ? String(name || '').trim() : name,
+    startDate: normalizedStartDate,
+    endDate: normalizedEndDate,
+    semester
+  };
 };
 
 const listAcademicPeriods = async (query = {}) => {
@@ -40,7 +55,7 @@ const getAcademicPeriodDetail = async (id) => {
 };
 
 const createAcademicPeriod = async (payload) => {
-  validatePeriodInput(payload);
+  const validated = validatePeriodInput(payload);
 
   const transaction = await sequelize.transaction();
   try {
@@ -49,10 +64,10 @@ const createAcademicPeriod = async (payload) => {
     }
 
     const period = await AcademicPeriod.create({
-      name: String(payload.name).trim(),
-      startDate: payload.startDate,
-      endDate: payload.endDate,
-      semester: payload.semester,
+      name: validated.name,
+      startDate: validated.startDate,
+      endDate: validated.endDate,
+      semester: validated.semester,
       isActive: Boolean(payload.isActive)
     }, { transaction });
 
@@ -77,7 +92,7 @@ const updateAcademicPeriod = async (id, payload) => {
     endDate: payload.endDate !== undefined ? payload.endDate : period.endDate,
     semester: payload.semester !== undefined ? payload.semester : period.semester
   };
-  validatePeriodInput(nextPayload, { partial: true });
+  const validated = validatePeriodInput(nextPayload, { partial: true });
 
   const transaction = await sequelize.transaction();
   try {
@@ -85,10 +100,10 @@ const updateAcademicPeriod = async (id, payload) => {
       await AcademicPeriod.update({ isActive: false }, { where: {}, transaction });
     }
 
-    if (payload.name !== undefined) period.name = nextPayload.name;
-    if (payload.startDate !== undefined) period.startDate = nextPayload.startDate;
-    if (payload.endDate !== undefined) period.endDate = nextPayload.endDate;
-    if (payload.semester !== undefined) period.semester = nextPayload.semester;
+    if (payload.name !== undefined) period.name = validated.name;
+    if (payload.startDate !== undefined) period.startDate = validated.startDate;
+    if (payload.endDate !== undefined) period.endDate = validated.endDate;
+    if (payload.semester !== undefined) period.semester = validated.semester;
     if (payload.isActive !== undefined) period.isActive = Boolean(payload.isActive);
 
     await period.save({ transaction });

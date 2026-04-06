@@ -109,12 +109,12 @@ const ACCESS = Object.freeze({
     approve: freezeRoles([ROLES.KEPALA_SEKOLAH])
   }),
   siswa: Object.freeze({
-    view: freezeRoles([ROLES.STAFF_TU, ROLES.GURU]),
+    view: freezeRoles(ROLE_LIST),
     manage: freezeRoles(ADMIN_ROLES)
   }),
   studentNote: Object.freeze({
-    view: freezeRoles([ROLES.STAFF_TU, ROLES.GURU]),
-    manage: freezeRoles([ROLES.STAFF_TU, ROLES.GURU])
+    view: freezeRoles(ROLE_LIST),
+    manage: freezeRoles(ROLE_LIST)
   }),
   subject: Object.freeze({
     view: freezeRoles(SCHEDULING_MANAGER_ROLES),

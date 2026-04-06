@@ -12,6 +12,7 @@ const {
 } = require('../models');
 const { ROLES, getUserRoles } = require('../config/rbac');
 const { serviceError } = require('../utils/serviceError');
+const { ensureTimeRange, normalizeTimeString } = require('./schedulingSupport');
 
 const parseEnvBool = (value, fallback = false) => {
   if (typeof value === 'boolean') return value;
@@ -41,6 +42,75 @@ const ensurePeriodId = (periodId) => {
     throw serviceError(400, 'Periode akademik tidak valid');
   }
   return normalizedPeriodId;
+};
+
+const toTimeSeconds = (timeText) => {
+  const [hour, minute, second] = String(timeText).split(':').map((part) => Number(part));
+  return (hour * 3600) + (minute * 60) + second;
+};
+
+const validateTimeSlotsIntegrity = (timeSlots) => {
+  const errors = [];
+  const slotsPerDay = new Map();
+
+  timeSlots.forEach((slot) => {
+    const slotLabel = slot.label || `slot #${slot.id}`;
+    let normalizedStartTime = null;
+    let normalizedEndTime = null;
+    try {
+      normalizedStartTime = normalizeTimeString(slot.startTime, `Jam mulai ${slotLabel}`);
+      normalizedEndTime = normalizeTimeString(slot.endTime, `Jam selesai ${slotLabel}`);
+      ensureTimeRange(normalizedStartTime, normalizedEndTime);
+    } catch (err) {
+      errors.push(issue(
+        'TIMESLOT_INVALID_RANGE',
+        `Time slot ${slotLabel} memiliki rentang waktu tidak valid`
+      ));
+      return;
+    }
+
+    const normalizedSlot = {
+      id: slot.id,
+      label: slot.label,
+      dayOfWeek: Number(slot.dayOfWeek),
+      startTime: normalizedStartTime,
+      endTime: normalizedEndTime,
+      startSeconds: toTimeSeconds(normalizedStartTime),
+      endSeconds: toTimeSeconds(normalizedEndTime)
+    };
+    if (!Number.isInteger(normalizedSlot.dayOfWeek) || normalizedSlot.dayOfWeek < 1 || normalizedSlot.dayOfWeek > 6) {
+      errors.push(issue(
+        'TIMESLOT_INVALID_DAY',
+        `Time slot ${slotLabel} memiliki hari yang tidak valid`
+      ));
+      return;
+    }
+    if (!slotsPerDay.has(normalizedSlot.dayOfWeek)) {
+      slotsPerDay.set(normalizedSlot.dayOfWeek, []);
+    }
+    slotsPerDay.get(normalizedSlot.dayOfWeek).push(normalizedSlot);
+  });
+
+  slotsPerDay.forEach((slots, dayOfWeek) => {
+    slots.sort((a, b) => {
+      if (a.startSeconds !== b.startSeconds) return a.startSeconds - b.startSeconds;
+      if (a.endSeconds !== b.endSeconds) return a.endSeconds - b.endSeconds;
+      return Number(a.id) - Number(b.id);
+    });
+
+    for (let index = 1; index < slots.length; index += 1) {
+      const previous = slots[index - 1];
+      const current = slots[index];
+      if (current.startSeconds < previous.endSeconds) {
+        errors.push(issue(
+          'TIMESLOT_OVERLAP',
+          `Time slot ${current.label || `#${current.id}`} bentrok dengan ${previous.label || `#${previous.id}`} pada hari ke-${dayOfWeek}`
+        ));
+      }
+    }
+  });
+
+  return { errors };
 };
 
 const sumWeeklyHours = (assignments) => (
@@ -317,6 +387,9 @@ const validateScheduleGenerationData = async (periodId, constraints = {}) => {
       'TIMESLOT_EMPTY',
       'Belum ada data time slot pada periode ini'
     ));
+  } else {
+    const timeSlotValidation = validateTimeSlotsIntegrity(timeSlots);
+    errors.push(...timeSlotValidation.errors);
   }
 
   const assignmentValidation = validateAssignments(

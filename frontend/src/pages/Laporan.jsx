@@ -7,6 +7,7 @@ import Select from '../components/ui/Select';
 import Badge from '../components/ui/Badge';
 import { ROLES } from '../constants/rbac';
 import { useAuth } from '../context/useAuth';
+import { isValidDateRange } from '../utils/temporalValidation';
 
 const REPORT_TYPE_CONFIG = [
   {
@@ -61,7 +62,7 @@ const REPORT_TYPE_CONFIG = [
 
 const extractFilenameFromDisposition = (disposition, fallback) => {
   if (!disposition) return fallback;
-  const match = disposition.match(/filename\*?=(?:UTF-8'')?\"?([^\";]+)\"?/i);
+  const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
   if (!match?.[1]) return fallback;
   try {
     return decodeURIComponent(match[1]);
@@ -71,6 +72,9 @@ const extractFilenameFromDisposition = (disposition, fallback) => {
 };
 
 const getRowLabel = (row, type) => {
+  if (type === 'daily') {
+    return row.student?.name || row.label || '-';
+  }
   if (type === 'teacher-subject') {
     return row.label || `${row.teacher?.name || '-'} • ${row.subject?.name || '-'}`;
   }
@@ -88,6 +92,12 @@ const getRowLabel = (row, type) => {
 };
 
 const getRowSubLabel = (row, type) => {
+  if (type === 'daily') {
+    const dateLabel = row.date || '-';
+    const rombelLabel = row.rombel?.name || '-';
+    const statusLabel = row.dayStatusLabel || '-';
+    return `${dateLabel} • ${rombelLabel} • ${statusLabel}`;
+  }
   if (type === 'students') return row.student?.nis ? `NIS: ${row.student.nis}` : '';
   if (type === 'teacher-subject') return row.subject?.code ? `Kode: ${row.subject.code}` : '';
   if (type === 'slots') return row.timeSlot?.dayOfWeek ? `Hari ke-${row.timeSlot.dayOfWeek}` : '';
@@ -137,6 +147,15 @@ const Laporan = () => {
     if (!currentType) return;
 
     setError(null);
+    if (!dateFrom || !dateTo) {
+      setError('Rentang tanggal wajib diisi');
+      return;
+    }
+    if (!isValidDateRange(dateFrom, dateTo)) {
+      setError('Tanggal sampai harus setelah atau sama dengan tanggal dari');
+      return;
+    }
+
     setLoading(true);
     try {
       const response = await api.get(currentType.endpoint, {
@@ -159,6 +178,10 @@ const Laporan = () => {
     if (!currentType) return;
     if (!dateFrom || !dateTo) {
       setError('Isi rentang tanggal terlebih dahulu sebelum export');
+      return;
+    }
+    if (!isValidDateRange(dateFrom, dateTo)) {
+      setError('Tanggal sampai harus setelah atau sama dengan tanggal dari');
       return;
     }
 
@@ -235,6 +258,8 @@ const Laporan = () => {
             <thead>
               <tr className="border-b text-xs font-semibold text-slate-500">
                 <th className="py-4 text-left">Nama / Keterangan</th>
+                {currentType?.value === 'daily' && <th className="py-4 text-center">Status Harian</th>}
+                {currentType?.value === 'daily' && <th className="py-4 text-center">Kehadiran Efektif</th>}
                 <th className="py-4 text-center">Hadir</th>
                 <th className="py-4 text-center">Izin</th>
                 <th className="py-4 text-center">Sakit</th>
@@ -251,6 +276,12 @@ const Laporan = () => {
                       <div className="text-xs text-slate-500">{getRowSubLabel(row, currentType?.value)}</div>
                     )}
                   </td>
+                  {currentType?.value === 'daily' && (
+                    <td className="py-4 text-center">{row.dayStatusLabel || '-'}</td>
+                  )}
+                  {currentType?.value === 'daily' && (
+                    <td className="py-4 text-center">{row.attendanceRate !== undefined ? `${row.attendanceRate}%` : '-'}</td>
+                  )}
                   <td className="py-4 text-center">{row.hadir || 0}</td>
                   <td className="py-4 text-center">{row.izin || 0}</td>
                   <td className="py-4 text-center">{row.sakit || 0}</td>
@@ -285,12 +316,24 @@ const Laporan = () => {
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">Dari Tanggal</label>
-            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} required />
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              max={dateTo || undefined}
+              required
+            />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">Sampai Tanggal</label>
-            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} required />
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              min={dateFrom || undefined}
+              required
+            />
           </div>
 
           <div className="md:col-span-3 flex flex-col sm:flex-row gap-3">

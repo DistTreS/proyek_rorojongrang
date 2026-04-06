@@ -15,6 +15,7 @@ import {
   fetchAllPages,
   normalizePaginatedResponse
 } from '../utils/pagination';
+import { isValidDateOnly } from '../utils/temporalValidation';
 
 const emptyForm = {
   nis: '',
@@ -111,6 +112,10 @@ const Siswa = () => {
 
     if (!form.nis.trim() || !form.name.trim()) {
       setError('NIS dan nama wajib diisi');
+      return;
+    }
+    if (form.birthDate && !isValidDateOnly(form.birthDate)) {
+      setError('Tanggal lahir tidak valid');
       return;
     }
 

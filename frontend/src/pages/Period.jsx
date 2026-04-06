@@ -12,6 +12,7 @@ import {
   DEFAULT_PAGE_SIZE,
   normalizePaginatedResponse
 } from '../utils/pagination';
+import { isValidDateRange } from '../utils/temporalValidation';
 
 const emptyForm = {
   name: '',
@@ -20,8 +21,6 @@ const emptyForm = {
   semester: 'ganjil',
   isActive: false
 };
-
-const isValidDateRange = (startDate, endDate) => !startDate || !endDate || startDate <= endDate;
 
 const Period = () => {
   const [periods, setPeriods] = useState([]);
@@ -249,6 +248,7 @@ const Period = () => {
                   type="date"
                   value={form.startDate}
                   onChange={(e) => updateForm('startDate', e.target.value)}
+                  max={form.endDate || undefined}
                   required
                 />
               </div>
@@ -258,6 +258,7 @@ const Period = () => {
                   type="date"
                   value={form.endDate}
                   onChange={(e) => updateForm('endDate', e.target.value)}
+                  min={form.startDate || undefined}
                   required
                 />
               </div>

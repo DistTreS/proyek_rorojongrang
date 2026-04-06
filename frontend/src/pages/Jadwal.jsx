@@ -39,7 +39,7 @@ const normalizeTimeSortValue = (value) => {
 
 const extractFilenameFromDisposition = (disposition, fallback) => {
   if (!disposition) return fallback;
-  const match = disposition.match(/filename\*?=(?:UTF-8'')?\"?([^\";]+)\"?/i);
+  const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
   if (!match?.[1]) return fallback;
   try {
     return decodeURIComponent(match[1]);
@@ -57,6 +57,7 @@ const Jadwal = ({
   batchStatusFilter = null
 }) => {
   const { roles } = useAuth();
+  const hasGuruRole = roles.includes(ROLES.GURU);
   const canManageSchedule = canAccess(roles, SCHEDULING_MANAGER_ROLES);
   const canGenerateAction = Boolean(canGenerate && canManageSchedule);
   const canSubmitAction = Boolean(canSubmit && canAccess(roles, [ROLES.WAKASEK]));
@@ -78,14 +79,27 @@ const Jadwal = ({
   const [editForm, setEditForm] = useState({ id: null, timeSlotId: '', teachingAssignmentId: '', room: '' });
   const [decisionForm, setDecisionForm] = useState({ action: '', notes: '' });
   const [selectedDay, setSelectedDay] = useState(1);
+  const [scope, setScope] = useState('global');
   const activeConstraints = FIXED_GENERATE_CONSTRAINTS;
   const normalizedBatchStatusFilter = String(batchStatusFilter || '').toLowerCase();
-  const isExplicitBatchMode = normalizedBatchStatusFilter === 'submittable'
-    || ['draft', 'submitted', 'approved', 'rejected'].includes(normalizedBatchStatusFilter);
-  const canUseDirectStatusFilter = ['draft', 'submitted', 'approved', 'rejected'].includes(normalizedBatchStatusFilter);
+  const effectiveBatchStatusFilter = useMemo(() => {
+    if (normalizedBatchStatusFilter) {
+      return normalizedBatchStatusFilter;
+    }
+    if (!canManageSchedule && !canSubmitAction && !canApproveAction) {
+      return 'approved';
+    }
+    return '';
+  }, [normalizedBatchStatusFilter, canManageSchedule, canSubmitAction, canApproveAction]);
+  const isExplicitBatchMode = effectiveBatchStatusFilter === 'submittable'
+    || ['draft', 'submitted', 'approved', 'rejected'].includes(effectiveBatchStatusFilter);
+  const canUseDirectStatusFilter = ['draft', 'submitted', 'approved', 'rejected'].includes(effectiveBatchStatusFilter);
 
   const fetchBatches = async () => {
-    const params = canUseDirectStatusFilter ? { status: normalizedBatchStatusFilter } : undefined;
+    const params = {
+      ...(canUseDirectStatusFilter ? { status: effectiveBatchStatusFilter } : {}),
+      ...(hasGuruRole ? { scope } : {})
+    };
     const { data } = await api.get('/schedule/batches', params ? { params } : undefined);
     return data || [];
   };
@@ -129,7 +143,29 @@ const Jadwal = ({
       }
     };
     loadInitial();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    const refreshBatches = async () => {
+      try {
+        const nextBatches = await fetchBatches();
+        if (active) {
+          setBatches(nextBatches);
+        }
+      } catch (err) {
+        if (active) {
+          setError(err.response?.data?.message || 'Gagal memuat batch jadwal');
+        }
+      }
+    };
+    refreshBatches();
+    return () => {
+      active = false;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope, hasGuruRole, canUseDirectStatusFilter, effectiveBatchStatusFilter]);
 
   // Load schedule when period or batch changes
   useEffect(() => {
@@ -149,7 +185,11 @@ const Jadwal = ({
       setLoading(true);
       try {
         const schedulePromise = api.get('/schedule', {
-          params: { periodId: selectedPeriod, ...(selectedBatchId && { batchId: selectedBatchId }) }
+          params: {
+            periodId: selectedPeriod,
+            ...(selectedBatchId && { batchId: selectedBatchId }),
+            ...(hasGuruRole ? { scope } : {})
+          }
         });
         const validationPromise = shouldLoadValidation
           ? api.post('/schedule/validate', {
@@ -168,22 +208,22 @@ const Jadwal = ({
       }
     };
     loadScheduleData();
-  }, [selectedPeriod, selectedBatchId, activeConstraints, isExplicitBatchMode, shouldLoadValidation]);
+  }, [selectedPeriod, selectedBatchId, activeConstraints, isExplicitBatchMode, shouldLoadValidation, hasGuruRole, scope]);
 
   const filteredBatches = useMemo(() => {
     if (!selectedPeriod) return [];
     const byPeriod = batches.filter((batch) => String(batch.periodId) === String(selectedPeriod));
 
-    if (normalizedBatchStatusFilter === 'submittable') {
+    if (effectiveBatchStatusFilter === 'submittable') {
       return byPeriod.filter((batch) => ['draft', 'rejected'].includes(batch.status));
     }
 
-    if (['draft', 'submitted', 'approved', 'rejected'].includes(normalizedBatchStatusFilter)) {
-      return byPeriod.filter((batch) => batch.status === normalizedBatchStatusFilter);
+    if (['draft', 'submitted', 'approved', 'rejected'].includes(effectiveBatchStatusFilter)) {
+      return byPeriod.filter((batch) => batch.status === effectiveBatchStatusFilter);
     }
 
     return byPeriod;
-  }, [batches, selectedPeriod, normalizedBatchStatusFilter]);
+  }, [batches, selectedPeriod, effectiveBatchStatusFilter]);
 
   useEffect(() => {
     if (!selectedPeriod) {
@@ -350,7 +390,8 @@ const Jadwal = ({
         params: {
           periodId: selectedPeriod || undefined,
           batchId: selectedBatchId || undefined,
-          status: canUseDirectStatusFilter ? normalizedBatchStatusFilter : undefined,
+          status: canUseDirectStatusFilter ? effectiveBatchStatusFilter : undefined,
+          scope: hasGuruRole ? scope : undefined,
           format
         },
         responseType: 'blob'
@@ -399,7 +440,11 @@ const Jadwal = ({
       setMessage('Draft berhasil diperbarui');
       // Refresh schedule
       const { data } = await api.get('/schedule', {
-        params: { periodId: selectedPeriod, ...(selectedBatchId && { batchId: selectedBatchId }) }
+        params: {
+          periodId: selectedPeriod,
+          ...(selectedBatchId && { batchId: selectedBatchId }),
+          ...(hasGuruRole ? { scope } : {})
+        }
       });
       setSchedule(data);
     } catch (err) {
@@ -456,6 +501,19 @@ const Jadwal = ({
             {periods.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </Select>
 
+          {hasGuruRole && (
+            <Select
+              value={scope}
+              onChange={(e) => {
+                setScope(e.target.value);
+                setSelectedBatchId('');
+              }}
+            >
+              <option value="global">Scope: Jadwal Global</option>
+              <option value="personal">Scope: Jadwal Terkait Saya</option>
+            </Select>
+          )}
+
           <Select
             value={selectedBatchId}
             onChange={(e) => setSelectedBatchId(e.target.value)}
@@ -485,11 +543,11 @@ const Jadwal = ({
           </Button>
           <Button
             variant="secondary"
-            onClick={() => handleExport('csv')}
+            onClick={() => handleExport('pdf')}
             disabled={exporting || (!selectedPeriod && !selectedBatchId)}
             size="lg"
           >
-            {exporting ? 'Export...' : 'Export Jadwal CSV'}
+            {exporting ? 'Export...' : 'Export Jadwal PDF'}
           </Button>
         </div>
       </div>
@@ -551,11 +609,6 @@ const Jadwal = ({
         <Card className={`p-6 ${validation.valid ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
           <p className="font-semibold">{validation.valid ? '✅ Data siap digenerate' : '⚠️ Data belum siap'}</p>
           <p className="text-sm mt-1">{validation.message}</p>
-          <p className="text-xs text-slate-600 mt-2">
-            Constraint aktif: max 8 jam/hari
-            {' '}• blok 2-3 JP {activeConstraints.enforce_consecutive_small_assignments ? 'aktif' : 'nonaktif'}
-            {' '}• soft limit 5 mapel/rombel/hari
-          </p>
           {!!validation.errors?.length && (
             <div className="mt-3 space-y-1 text-xs text-amber-800">
               {validation.errors.slice(0, 5).map((item, index) => (
@@ -623,6 +676,9 @@ const Jadwal = ({
 
       {/* Schedule Table */}
       <Card className="p-6">
+        {loading && (
+          <p className="mb-4 text-sm text-slate-500">Memuat jadwal...</p>
+        )}
         <div className="flex flex-wrap gap-2 mb-4">
           {(scheduleMatrix.dayOptions.length ? scheduleMatrix.dayOptions : [1, 2, 3, 4, 5, 6]).map((day) => (
             <button
