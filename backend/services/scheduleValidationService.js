@@ -23,10 +23,14 @@ const parseEnvBool = (value, fallback = false) => {
   return fallback;
 };
 
-const FIXED_MAX_TEACHER_DAILY_HOURS = 8;
+const FIXED_TEACHER_SUBJECT_DAILY_SOFT_LIMIT = 6;
 const FIXED_ROMBEL_DAILY_SUBJECT_LIMIT = 5;
 const ENABLE_WAJIB_PEMINATAN_CONFLICT_CHECK = parseEnvBool(
   process.env.ENABLE_WAJIB_PEMINATAN_CONFLICT_CHECK,
+  false
+);
+const ENABLE_STUDENT_CONFLICT_CHECK = parseEnvBool(
+  process.env.ENABLE_STUDENT_CONFLICT_CHECK,
   false
 );
 
@@ -281,8 +285,6 @@ const buildCapacityIssues = ({ assignments, timeSlotCount, rombelCount }) => {
   };
 };
 
-const resolveMaxTeacherDailyHours = () => FIXED_MAX_TEACHER_DAILY_HOURS;
-
 const validateScheduleGenerationData = async (periodId, constraints = {}) => {
   const normalizedPeriodId = ensurePeriodId(periodId);
 
@@ -407,7 +409,7 @@ const validateScheduleGenerationData = async (periodId, constraints = {}) => {
     }))
     .filter((item) => item.rombelIds.length > 0);
 
-  if (ENABLE_WAJIB_PEMINATAN_CONFLICT_CHECK) {
+  if (ENABLE_WAJIB_PEMINATAN_CONFLICT_CHECK && ENABLE_STUDENT_CONFLICT_CHECK) {
     const studentsMultiRombel = studentEnrollments.filter((item) => item.rombelIds.length > 1);
     const rombelMap = new Map(rombels.map((rombel) => [rombel.id, rombel]));
     const studentsUtamaPlusPeminatan = studentsMultiRombel.filter((item) => {
@@ -443,21 +445,8 @@ const validateScheduleGenerationData = async (periodId, constraints = {}) => {
   });
   errors.push(...capacity.errors);
 
-  // Batas ini dipatok sebagai hard constraint agar konsisten lintas modul.
   void constraints;
-  const maxTeacherDailyHours = resolveMaxTeacherDailyHours();
   const totalEffectiveDays = new Set(timeSlots.map((slot) => slot.dayOfWeek)).size;
-  if (maxTeacherDailyHours > 0 && totalEffectiveDays > 0) {
-    const maxTeacherWeeklyHours = maxTeacherDailyHours * totalEffectiveDays;
-    capacity.summary.teacherLoads
-      .filter((entry) => entry.totalHours > maxTeacherWeeklyHours)
-      .forEach((entry) => {
-        errors.push(issue(
-          'TEACHER_DAILY_LIMIT_INFEASIBLE',
-          `Guru ${entry.name || entry.id} membutuhkan ${entry.totalHours} jam, melebihi kapasitas ${maxTeacherWeeklyHours} jam untuk batas ${maxTeacherDailyHours} jam/hari`
-        ));
-      });
-  }
 
   return {
     valid: errors.length === 0,
@@ -483,9 +472,17 @@ const validateScheduleGenerationData = async (periodId, constraints = {}) => {
         studentEnrollments: studentEnrollments.length
       },
       constraints: {
-        maxTeacherDailyHours,
+        teacherSubjectDailySoftLimit: FIXED_TEACHER_SUBJECT_DAILY_SOFT_LIMIT,
         rombelDailySubjectSoftLimit: FIXED_ROMBEL_DAILY_SUBJECT_LIMIT,
+        distributionRules: [
+          '1 JP per minggu: bebas',
+          '2-3 JP per minggu: 1 hari berurutan',
+          '4 JP per minggu: 2 hari (2+2)',
+          '5 JP per minggu: 2 hari (3+2)',
+          '6 JP per minggu: 2 hari (3+3) atau 3 hari (2+2+2)'
+        ],
         wajibPeminatanConflictCheckEnabled: ENABLE_WAJIB_PEMINATAN_CONFLICT_CHECK,
+        studentConflictCheckEnabled: ENABLE_STUDENT_CONFLICT_CHECK,
         totalEffectiveDays
       },
       capacity: capacity.summary

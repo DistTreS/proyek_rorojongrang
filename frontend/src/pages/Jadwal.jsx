@@ -23,7 +23,27 @@ const batchStatusMeta = {
 
 const FIXED_GENERATE_CONSTRAINTS = Object.freeze({
   max_teacher_daily_hours: 8,
-  enforce_consecutive_small_assignments: true
+  enforce_consecutive_small_assignments: true,
+  rombel_daily_subject_soft_limit: 5,
+  use_ga: true,
+  ga: {
+    enabled: true,
+    population_size: 16,
+    generations: 12,
+    crossover_rate: 0.75,
+    mutation_rate: 0.35,
+    tournament_size: 3,
+    elite_count: 2,
+    hybrid_rounds: 2,
+    hybrid_no_improvement_stop_rounds: 2
+  },
+  enforce_grade_track_constraints: true,
+  prefer_weight: 8,
+  avoid_penalty: 10,
+  day_spread_weight: 2,
+  enable_distribution_cp_objective: false,
+  distribution_pattern_penalty: 1,
+  distribution_non_consecutive_penalty: 2
 });
 
 const normalizeTimeSortValue = (value) => {
@@ -35,6 +55,27 @@ const normalizeTimeSortValue = (value) => {
   const second = Number(parts[2] || 0);
   if ([hour, minute, second].some((num) => Number.isNaN(num))) return Number.MAX_SAFE_INTEGER;
   return (hour * 3600) + (minute * 60) + second;
+};
+
+const normalizeRombelType = (value) => String(value || '').trim().toLowerCase();
+
+const compareRombelOrder = (a, b) => {
+  const typePriority = {
+    utama: 0,
+    wajib: 0,
+    peminatan: 1
+  };
+  const aType = normalizeRombelType(a?.type);
+  const bType = normalizeRombelType(b?.type);
+  const aPriority = typePriority[aType] ?? 2;
+  const bPriority = typePriority[bType] ?? 2;
+  if (aPriority !== bPriority) return aPriority - bPriority;
+
+  const aGrade = Number(a?.gradeLevel) || 0;
+  const bGrade = Number(b?.gradeLevel) || 0;
+  if (aGrade !== bGrade) return aGrade - bGrade;
+
+  return String(a?.name || '').localeCompare(String(b?.name || ''), 'id-ID');
 };
 
 const extractFilenameFromDisposition = (disposition, fallback) => {
@@ -257,12 +298,19 @@ const Jadwal = ({
       const slotId = Number(item.timeSlot?.id);
       const rombelId = Number(item.teachingAssignment?.rombel?.id || item.rombelId);
       const rombelName = item.teachingAssignment?.rombel?.name || `Rombel #${rombelId}`;
+      const rombelType = item.teachingAssignment?.rombel?.type || null;
+      const rombelGradeLevel = item.teachingAssignment?.rombel?.gradeLevel || null;
 
       if (!day || !slotId || !rombelId) return;
 
       daySet.add(day);
       if (!rombelMap.has(rombelId)) {
-        rombelMap.set(rombelId, { id: rombelId, name: rombelName });
+        rombelMap.set(rombelId, {
+          id: rombelId,
+          name: rombelName,
+          type: rombelType,
+          gradeLevel: rombelGradeLevel
+        });
       }
 
       const dayKey = String(day);
@@ -284,7 +332,7 @@ const Jadwal = ({
     });
 
     const dayOptions = [...daySet].sort((a, b) => a - b);
-    const rombels = [...rombelMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'id-ID'));
+    const rombels = [...rombelMap.values()].sort(compareRombelOrder);
     const rowsByDay = {};
     rowMap.forEach((rows, dayKey) => {
       rowsByDay[dayKey] = [...rows.values()].sort((a, b) => {
@@ -641,6 +689,24 @@ const Jadwal = ({
           <p className="text-sm text-sky-800">
             Generated: {solverResult.summary?.generatedItems || 0} sesi • Feasible: {solverResult.summary?.feasible ? 'Ya' : 'Tidak'}
           </p>
+          <p className="text-sm text-sky-800">
+            Runtime: total {solverResult.summary?.runtimeMs?.total ?? '-'} ms • CP-SAT {solverResult.summary?.runtimeMs?.cpSat ?? '-'} ms • GA {solverResult.summary?.runtimeMs?.ga ?? '-'} ms
+          </p>
+          <p className="text-sm text-sky-800">
+            Penalty (Final): {solverResult.summary?.softPenalties?.final?.totalPenalty ?? '-'} • Penalty (CP-SAT): {solverResult.summary?.softPenalties?.cpSat?.totalPenalty ?? '-'} • Delta Score: {solverResult.summary?.objectiveScores?.delta ?? '-'}
+          </p>
+          <p className="text-sm text-sky-800">
+            Distribusi: Patuh {solverResult.summary?.distributionCompliance?.compliantAssignments ?? '-'}
+            /{solverResult.summary?.distributionCompliance?.totalAssignments ?? '-'}
+            {solverResult.summary?.distributionCompliance?.complianceRatePercent !== null
+              && solverResult.summary?.distributionCompliance?.complianceRatePercent !== undefined
+              ? ` (${solverResult.summary.distributionCompliance.complianceRatePercent}%)`
+              : ''} • Pattern Units {solverResult.summary?.distributionCompliance?.distributionPatternUnitsTotal ?? '-'}
+            • Non-Contiguous Units {solverResult.summary?.distributionCompliance?.distributionNonConsecutiveUnitsTotal ?? '-'}
+          </p>
+          <p className="text-sm text-sky-800">
+            Hard Constraint: Event={solverResult.summary?.hardConstraints?.status?.eachEventScheduledExactlyOnce ? 'OK' : 'X'} • Guru={solverResult.summary?.hardConstraints?.status?.noTeacherConflict ? 'OK' : 'X'} • Rombel={solverResult.summary?.hardConstraints?.status?.noRombelConflict ? 'OK' : 'X'}
+          </p>
           {!!solverResult.warnings?.length && (
             <div className="mt-3 space-y-1 text-xs text-slate-700">
               {solverResult.warnings.slice(0, 5).map((item, index) => (
@@ -663,11 +729,39 @@ const Jadwal = ({
               {solverResult.fallbackReason.details?.timeoutMs && (
                 <p>Timeout: {solverResult.fallbackReason.details.timeoutMs} ms</p>
               )}
+              {solverResult.fallbackReason.details?.originalName && (
+                <p>Original Error Name: {solverResult.fallbackReason.details.originalName}</p>
+              )}
+              {solverResult.fallbackReason.details?.originalCode !== undefined
+                && solverResult.fallbackReason.details?.originalCode !== null && (
+                <p>Original Error Code: {String(solverResult.fallbackReason.details.originalCode)}</p>
+              )}
+              {solverResult.fallbackReason.details?.originalMessage && (
+                <p>Original Error Message: {solverResult.fallbackReason.details.originalMessage}</p>
+              )}
               {solverResult.fallbackReason.details?.status && (
                 <p>HTTP Status Scheduler: {solverResult.fallbackReason.details.status}</p>
               )}
+              {solverResult.fallbackReason.details?.body && (
+                <p>
+                  Body: {typeof solverResult.fallbackReason.details.body === 'string'
+                    ? solverResult.fallbackReason.details.body
+                    : JSON.stringify(solverResult.fallbackReason.details.body)}
+                </p>
+              )}
               {solverResult.fallbackReason.details?.error && (
                 <p>Error: {solverResult.fallbackReason.details.error}</p>
+              )}
+              {solverResult.fallbackReason.details?.causeCode && (
+                <p>Cause Code: {solverResult.fallbackReason.details.causeCode}</p>
+              )}
+              {solverResult.fallbackReason.details?.causeMessage && (
+                <p>Cause Message: {solverResult.fallbackReason.details.causeMessage}</p>
+              )}
+              {(solverResult.fallbackReason.details?.causeAddress || solverResult.fallbackReason.details?.causePort) && (
+                <p>
+                  Cause Endpoint: {solverResult.fallbackReason.details.causeAddress || '-'}:{solverResult.fallbackReason.details.causePort || '-'}
+                </p>
               )}
             </div>
           )}

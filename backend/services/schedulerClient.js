@@ -40,6 +40,50 @@ const createFallbackReason = (code, message, details = {}) => ({
   details
 });
 
+const extractNetworkErrorDetails = (err) => {
+  const cause = err?.cause && typeof err.cause === 'object' ? err.cause : {};
+  return {
+    error: err?.message || 'Unknown error',
+    errorName: err?.name || null,
+    causeCode: cause?.code || err?.code || null,
+    causeMessage: cause?.message || null,
+    causeAddress: cause?.address || null,
+    causePort: cause?.port || null
+  };
+};
+
+const normalizeFallbackReason = (reason) => {
+  const details = reason && typeof reason.details === 'object' && reason.details !== null
+    ? reason.details
+    : {};
+  return {
+    code: String(reason?.code || 'SCHEDULER_UNKNOWN_ERROR'),
+    message: String(reason?.message || 'Unknown scheduler error'),
+    details
+  };
+};
+
+const buildSchedulerUrlCandidates = (rawSchedulerUrl) => {
+  const fallback = 'http://localhost:8000';
+  const base = String(rawSchedulerUrl || fallback).trim() || fallback;
+  const candidates = [base];
+
+  try {
+    const parsed = new URL(base);
+    if (parsed.hostname === 'localhost') {
+      parsed.hostname = '127.0.0.1';
+      candidates.push(parsed.toString().replace(/\/$/, ''));
+    } else if (parsed.hostname === '127.0.0.1') {
+      parsed.hostname = 'localhost';
+      candidates.push(parsed.toString().replace(/\/$/, ''));
+    }
+  } catch (err) {
+    // Abaikan URL invalid, biarkan request utama yang melaporkan error.
+  }
+
+  return [...new Set(candidates)];
+};
+
 const withTimeoutSignal = (timeoutMs) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -63,6 +107,17 @@ const parseSchedulerFailureBody = async (response) => {
   } catch (err) {
     return null;
   }
+};
+
+const isAbortLikeError = (err) => {
+  if (!err) return false;
+  const message = String(err.message || '').toLowerCase();
+  return (
+    err.name === 'AbortError'
+    || err.code === 'ABORT_ERR'
+    || err.code === 20
+    || message.includes('aborted')
+  );
 };
 
 const requestScheduler = async ({ schedulerUrl, requestPayload, timeoutMs }) => {
@@ -107,22 +162,43 @@ const requestScheduler = async ({ schedulerUrl, requestPayload, timeoutMs }) => 
       fallbackReason: null
     };
   } catch (err) {
-    if (err?.code) {
-      throw err;
-    }
-
-    if (err?.name === 'AbortError') {
+    if (isAbortLikeError(err)) {
       throw createFallbackReason(
         'SCHEDULER_TIMEOUT',
         'Scheduler service melebihi batas waktu',
-        { timeoutMs }
+        {
+          timeoutMs,
+          originalName: err?.name || null,
+          originalCode: err?.code ?? null,
+          originalMessage: err?.message || null
+        }
       );
+    }
+
+    const causeCode = err?.cause?.code || null;
+    if (causeCode === 'UND_ERR_HEADERS_TIMEOUT') {
+      throw createFallbackReason(
+        'SCHEDULER_TIMEOUT',
+        'Scheduler service melebihi batas waktu respon',
+        {
+          timeoutMs,
+          originalName: err?.name || null,
+          originalCode: err?.code ?? null,
+          originalMessage: err?.message || null,
+          causeCode,
+          causeMessage: err?.cause?.message || null
+        }
+      );
+    }
+
+    if (err?.code) {
+      throw err;
     }
 
     throw createFallbackReason(
       'SCHEDULER_NETWORK_ERROR',
       'Backend tidak dapat terhubung ke scheduler service',
-      { error: err?.message || 'Unknown error' }
+      extractNetworkErrorDetails(err)
     );
   } finally {
     clear();
@@ -138,7 +214,11 @@ const generateScheduleItems = async ({
   studentEnrollments
 }) => {
   const schedulerUrl = process.env.SCHEDULER_URL || 'http://localhost:8000';
-  const timeoutMs = Number(process.env.SCHEDULER_TIMEOUT_MS || 120000);
+  const timeoutCandidate = Number(process.env.SCHEDULER_TIMEOUT_MS || 1800000);
+  const timeoutMs = Number.isFinite(timeoutCandidate) && timeoutCandidate > 0
+    ? timeoutCandidate
+    : 1800000;
+  const schedulerUrlCandidates = buildSchedulerUrlCandidates(schedulerUrl);
   const requestPayload = buildSchedulerRequestPayload({
     periodId,
     assignments,
@@ -148,55 +228,78 @@ const generateScheduleItems = async ({
     studentEnrollments
   });
 
+  let lastError = null;
+  for (let index = 0; index < schedulerUrlCandidates.length; index += 1) {
+    const candidateUrl = schedulerUrlCandidates[index];
+    const isLastCandidate = index === (schedulerUrlCandidates.length - 1);
+    try {
+      const schedulerResult = await requestScheduler({
+        schedulerUrl: candidateUrl,
+        requestPayload,
+        timeoutMs
+      });
+
+      logInfo('scheduler-client', 'Scheduler service menghasilkan draft jadwal', {
+        source: schedulerResult.source,
+        generatedItems: schedulerResult.scheduleItems.length,
+        schedulerUrl: candidateUrl,
+        schedulerUrlCandidates,
+        ...schedulerResult.requestMeta
+      });
+
+      return schedulerResult;
+    } catch (err) {
+      lastError = normalizeFallbackReason(err);
+      const shouldRetryCandidate = !isLastCandidate && ['SCHEDULER_NETWORK_ERROR', 'SCHEDULER_TIMEOUT'].includes(lastError.code);
+      if (shouldRetryCandidate) {
+        logWarn('scheduler-client', 'Percobaan scheduler gagal, mencoba URL kandidat berikutnya', {
+          code: lastError.code,
+          message: lastError.message,
+          details: lastError.details,
+          schedulerUrl: candidateUrl,
+          nextSchedulerUrl: schedulerUrlCandidates[index + 1]
+        });
+        continue;
+      }
+      break;
+    }
+  }
+
+  const normalizedError = normalizeFallbackReason(lastError);
   try {
-    const schedulerResult = await requestScheduler({
-      schedulerUrl,
-      requestPayload,
-      timeoutMs
-    });
-
-    logInfo('scheduler-client', 'Scheduler service menghasilkan draft jadwal', {
-      source: schedulerResult.source,
-      generatedItems: schedulerResult.scheduleItems.length,
-      ...schedulerResult.requestMeta
-    });
-
-    return schedulerResult;
-  } catch (err) {
     logWarn('scheduler-client', 'Scheduler service gagal, menggunakan fallback lokal', {
-      code: err.code,
-      message: err.message,
-      details: err.details,
+      code: normalizedError.code,
+      message: normalizedError.message,
+      details: normalizedError.details,
+      schedulerUrlCandidates,
       ...buildFallbackSchedulerResult({
         requestPayload,
         scheduleItems: [],
-        reason: err,
+        reason: normalizedError,
         engine: 'local-fallback-round-robin'
       }).requestMeta
     });
 
-    try {
-      const scheduleItems = fallbackGenerate(assignments, timeSlots);
-      const fallbackResult = buildFallbackSchedulerResult({
-        requestPayload,
-        scheduleItems,
-        reason: err,
-        engine: 'local-fallback-round-robin'
-      });
+    const scheduleItems = fallbackGenerate(assignments, timeSlots);
+    const fallbackResult = buildFallbackSchedulerResult({
+      requestPayload,
+      scheduleItems,
+      reason: normalizedError,
+      engine: 'local-fallback-round-robin'
+    });
 
-      logInfo('scheduler-client', 'Fallback generator lokal selesai dijalankan', {
-        generatedItems: fallbackResult.scheduleItems.length,
-        reasonCode: err.code
-      });
+    logInfo('scheduler-client', 'Fallback generator lokal selesai dijalankan', {
+      generatedItems: fallbackResult.scheduleItems.length,
+      reasonCode: normalizedError.code
+    });
 
-      return fallbackResult;
-    } catch (fallbackError) {
-      logError('scheduler-client', 'Fallback generator lokal gagal dijalankan', {
-        schedulerFailure: err,
-        fallbackError: fallbackError?.message || 'Unknown error'
-      });
-      throw fallbackError;
-    }
+    return fallbackResult;
+  } catch (fallbackError) {
+    logError('scheduler-client', 'Fallback generator lokal gagal dijalankan', {
+      schedulerFailure: normalizedError,
+      fallbackError: fallbackError?.message || 'Unknown error'
+    });
+    throw fallbackError;
   }
 };
 

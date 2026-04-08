@@ -2,6 +2,103 @@ const toPlainObject = (value) => (
   value && typeof value === 'object' && !Array.isArray(value) ? value : {}
 );
 
+const toFiniteNumberOrNull = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const toBooleanOrNull = (value) => {
+  if (typeof value === 'boolean') return value;
+  if (value === null || value === undefined) return null;
+  return Boolean(value);
+};
+
+const normalizeFallbackReason = (reason) => ({
+  code: String(reason?.code || 'SCHEDULER_UNKNOWN_ERROR'),
+  message: String(reason?.message || 'Unknown scheduler error'),
+  details: toPlainObject(reason?.details)
+});
+
+const normalizeHardConstraintSummary = (hardConstraints) => {
+  const safe = toPlainObject(hardConstraints);
+  const status = toPlainObject(safe.status);
+  const violations = toPlainObject(safe.violations);
+
+  return {
+    status: {
+      eachEventScheduledExactlyOnce: toBooleanOrNull(status.each_event_scheduled_exactly_once),
+      teacherWeeklyHoursFulfilled: toBooleanOrNull(status.teacher_weekly_hours_fulfilled),
+      noTeacherConflict: toBooleanOrNull(status.no_teacher_conflict),
+      noRombelConflict: toBooleanOrNull(status.no_rombel_conflict),
+      slotTimeValid: toBooleanOrNull(status.slot_time_valid),
+      distributionPatternValid: toBooleanOrNull(status.distribution_pattern_valid),
+      mandatoryVsElectiveNoOverlap: toBooleanOrNull(status.mandatory_vs_elective_no_overlap),
+      electiveParallelSubjectLimitValid: toBooleanOrNull(status.elective_parallel_subject_limit_valid)
+    },
+    violations: {
+      assignmentExact: toFiniteNumberOrNull(violations.assignment_exact),
+      teacherWeeklyGap: toFiniteNumberOrNull(violations.teacher_weekly_gap),
+      teacherConflicts: toFiniteNumberOrNull(violations.teacher_conflicts),
+      rombelConflicts: toFiniteNumberOrNull(violations.rombel_conflicts),
+      invalidSlotReference: toFiniteNumberOrNull(violations.invalid_slot_reference),
+      invalidSlotDay: toFiniteNumberOrNull(violations.invalid_slot_day),
+      distributionPattern: toFiniteNumberOrNull(violations.distribution_pattern),
+      mandatoryVsElectiveOverlap: toFiniteNumberOrNull(violations.mandatory_vs_elective_overlap),
+      electiveParallelSubjectLimit: toFiniteNumberOrNull(violations.elective_parallel_subject_limit)
+    }
+  };
+};
+
+const normalizeSoftPenaltySummary = (softPenalties) => {
+  const safe = toPlainObject(softPenalties);
+  const cpSat = toPlainObject(safe.cp_sat);
+  const final = toPlainObject(safe.final);
+
+  const normalizeBucket = (bucket) => ({
+    teacherSubjectDailyOverloadUnits: toFiniteNumberOrNull(bucket.teacher_subject_daily_overload_units),
+    teacherSubjectDailyPenalty: toFiniteNumberOrNull(bucket.teacher_subject_daily_penalty),
+    rombelDailySubjectOverloadUnits: toFiniteNumberOrNull(bucket.rombel_daily_subject_overload_units),
+    rombelDailySubjectPenalty: toFiniteNumberOrNull(bucket.rombel_daily_subject_penalty),
+    distributionPatternUnits: toFiniteNumberOrNull(bucket.distribution_pattern_units),
+    distributionPatternPenalty: toFiniteNumberOrNull(bucket.distribution_pattern_penalty),
+    distributionNonConsecutiveUnits: toFiniteNumberOrNull(bucket.distribution_non_consecutive_units),
+    distributionNonConsecutivePenalty: toFiniteNumberOrNull(bucket.distribution_non_consecutive_penalty),
+    totalPenalty: toFiniteNumberOrNull(bucket.total_penalty)
+  });
+
+  return {
+    cpSat: normalizeBucket(cpSat),
+    final: normalizeBucket(final)
+  };
+};
+
+const normalizeDistributionCompliance = (distributionCompliance) => {
+  const safe = toPlainObject(distributionCompliance);
+  const topViolations = Array.isArray(safe.top_violations) ? safe.top_violations : [];
+
+  return {
+    totalAssignments: toFiniteNumberOrNull(safe.total_assignments),
+    compliantAssignments: toFiniteNumberOrNull(safe.compliant_assignments),
+    violationAssignments: toFiniteNumberOrNull(safe.violation_assignments),
+    complianceRatePercent: toFiniteNumberOrNull(safe.compliance_rate_percent),
+    distributionPatternUnitsTotal: toFiniteNumberOrNull(safe.distribution_pattern_units_total),
+    distributionNonConsecutiveUnitsTotal: toFiniteNumberOrNull(safe.distribution_non_consecutive_units_total),
+    topViolations: topViolations.map((item) => {
+      const safeItem = toPlainObject(item);
+      return {
+        teachingAssignmentId: toFiniteNumberOrNull(safeItem.teaching_assignment_id),
+        teacherId: toFiniteNumberOrNull(safeItem.teacher_id),
+        subjectId: toFiniteNumberOrNull(safeItem.subject_id),
+        rombelId: toFiniteNumberOrNull(safeItem.rombel_id),
+        weeklyHours: toFiniteNumberOrNull(safeItem.weekly_hours),
+        patternUnits: toFiniteNumberOrNull(safeItem.pattern_units),
+        nonConsecutiveUnits: toFiniteNumberOrNull(safeItem.non_consecutive_units),
+        weightedUnits: toFiniteNumberOrNull(safeItem.weighted_units)
+      };
+    })
+  };
+};
+
 const toIssueItem = (item, defaultCode, defaultMessage) => {
   if (typeof item === 'string') {
     return {
@@ -103,6 +200,9 @@ const buildRequestMeta = (requestPayload) => ({
 
 const normalizeSchedulerSummary = (summary, requestPayload, generatedItems, engine, usedFallback = false) => {
   const safeSummary = toPlainObject(summary);
+  const runtimeMs = toPlainObject(safeSummary.runtime_ms);
+  const objectiveScores = toPlainObject(safeSummary.objective_scores);
+  const constraintProfile = toPlainObject(safeSummary.constraint_profile);
   const requestedWeeklyHours = requestPayload.teaching_assignments.reduce(
     (total, item) => total + (Number(item.weekly_hours) || 0),
     0
@@ -117,7 +217,39 @@ const normalizeSchedulerSummary = (summary, requestPayload, generatedItems, engi
     requestedWeeklyHours,
     feasible: Boolean(safeSummary.feasible ?? (generatedItems > 0)),
     usedFallback,
-    engine: String(safeSummary.engine || engine)
+    engine: String(safeSummary.engine || engine),
+    runtimeMs: {
+      total: toFiniteNumberOrNull(runtimeMs.total),
+      cpSat: toFiniteNumberOrNull(runtimeMs.cp_sat),
+      ga: toFiniteNumberOrNull(runtimeMs.ga),
+      cpSatPolish: toFiniteNumberOrNull(runtimeMs.cp_sat_polish)
+    },
+    objectiveScores: {
+      cpSatSolver: toFiniteNumberOrNull(objectiveScores.cp_sat_solver),
+      cpSatEvaluated: toFiniteNumberOrNull(objectiveScores.cp_sat_evaluated),
+      final: toFiniteNumberOrNull(objectiveScores.final),
+      delta: toFiniteNumberOrNull(objectiveScores.delta)
+    },
+    hardConstraints: normalizeHardConstraintSummary(safeSummary.hard_constraints),
+    softPenalties: normalizeSoftPenaltySummary(safeSummary.soft_penalties),
+    distributionCompliance: normalizeDistributionCompliance(safeSummary.distribution_compliance),
+    constraintProfile: {
+      teacherSubjectDailySoftLimit: toFiniteNumberOrNull(
+        constraintProfile.teacher_subject_daily_soft_limit ?? safeSummary.teacher_subject_daily_soft_limit
+      ),
+      rombelDailySubjectSoftLimit: toFiniteNumberOrNull(
+        constraintProfile.rombel_daily_subject_soft_limit ?? safeSummary.rombel_daily_subject_soft_limit
+      ),
+      distributionRules: Array.isArray(constraintProfile.distribution_rules)
+        ? constraintProfile.distribution_rules.map((item) => String(item))
+        : [],
+      wajibPeminatanConflictCheckEnabled: toBooleanOrNull(
+        constraintProfile.wajib_peminatan_conflict_check_enabled
+      )
+    },
+    hybridRounds: Array.isArray(safeSummary.hybrid_rounds)
+      ? safeSummary.hybrid_rounds.map((item) => toPlainObject(item))
+      : []
   };
 };
 
@@ -147,26 +279,29 @@ const normalizeSchedulerResponse = ({ data, requestPayload, engine = 'scheduler-
   };
 };
 
-const buildFallbackSchedulerResult = ({ requestPayload, scheduleItems, reason, engine }) => ({
-  source: 'fallback',
-  engine,
-  generatedAt: new Date().toISOString(),
-  scheduleItems,
-  summary: normalizeSchedulerSummary({}, requestPayload, scheduleItems.length, engine, true),
-  warnings: [
-    {
-      code: 'SCHEDULER_FALLBACK_USED',
-      message: 'Backend menggunakan generator fallback lokal karena scheduler service tidak dapat dipakai',
-      details: {
-        reasonCode: reason.code,
-        reasonMessage: reason.message
+const buildFallbackSchedulerResult = ({ requestPayload, scheduleItems, reason, engine }) => {
+  const safeReason = normalizeFallbackReason(reason);
+  return {
+    source: 'fallback',
+    engine,
+    generatedAt: new Date().toISOString(),
+    scheduleItems,
+    summary: normalizeSchedulerSummary({}, requestPayload, scheduleItems.length, engine, true),
+    warnings: [
+      {
+        code: 'SCHEDULER_FALLBACK_USED',
+        message: 'Backend menggunakan generator fallback lokal karena scheduler service tidak dapat dipakai',
+        details: {
+          reasonCode: safeReason.code,
+          reasonMessage: safeReason.message
+        }
       }
-    }
-  ],
-  conflicts: [],
-  requestMeta: buildRequestMeta(requestPayload),
-  fallbackReason: reason
-});
+    ],
+    conflicts: [],
+    requestMeta: buildRequestMeta(requestPayload),
+    fallbackReason: safeReason
+  };
+};
 
 module.exports = {
   buildFallbackSchedulerResult,

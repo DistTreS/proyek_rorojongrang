@@ -13,7 +13,10 @@ const handleControllerError = (res, err, fallbackMessage) => {
   }
 
   if (err?.status) {
-    return res.status(err.status).json({ message: err.message });
+    const payload = { message: err.message };
+    if (err.code) payload.code = err.code;
+    if (err.details && typeof err.details === 'object') payload.details = err.details;
+    return res.status(err.status).json(payload);
   }
 
   return res.status(500).json({ message: fallbackMessage });

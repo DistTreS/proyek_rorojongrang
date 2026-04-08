@@ -62,9 +62,17 @@ class ScheduleSummary(BaseModel):
     total_time_slots: int = 0
     total_teacher_preferences: int = 0
     total_student_enrollments: int = 0
+    requested_sessions: int = 0
     generated_items: int = 0
     feasible: bool = False
     engine: str = "placeholder"
+    runtime_ms: dict[str, Any] | None = None
+    objective_scores: dict[str, Any] | None = None
+    hard_constraints: dict[str, Any] | None = None
+    soft_penalties: dict[str, Any] | None = None
+    distribution_compliance: dict[str, Any] | None = None
+    constraint_profile: dict[str, Any] | None = None
+    hybrid_rounds: list[dict[str, Any]] | None = None
 
 
 class ScheduleRequest(BaseModel):

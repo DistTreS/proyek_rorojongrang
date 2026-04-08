@@ -1,68 +1,149 @@
 @import "tailwindcss";
 
+/* ── Google Font ──────────────────────────────── */
 @layer base {
   :root {
     --font-sans: 'Inter', system-ui, sans-serif;
+
+    /* Brand palette */
+    --clr-brand-50:  #ecfdf5;
+    --clr-brand-100: #d1fae5;
+    --clr-brand-300: #6ee7b7;
+    --clr-brand-400: #34d399;
+    --clr-brand-500: #10b981;
+    --clr-brand-600: #059669;
+    --clr-brand-700: #047857;
+
+    /* Sidebar dark */
+    --sidebar-bg:    #0f1629;
+    --sidebar-hover: rgba(255,255,255,0.07);
+    --sidebar-active-bg: rgba(16,185,129,0.18);
+    --sidebar-active-text: #6ee7b7;
+    --sidebar-text:  rgba(255,255,255,0.60);
+    --sidebar-label: rgba(255,255,255,0.28);
+    --sidebar-border: rgba(255,255,255,0.06);
+
+    /* Surface */
+    --surface-page: #f0f4f8;
+    --surface-card: #ffffff;
+    --surface-card-border: rgba(0,0,0,0.06);
+    
+    /* Radius */
+    --radius-card: 1.25rem;
+    --radius-btn:  0.875rem;
+    --radius-input: 0.75rem;
   }
 
-  * {
-    box-sizing: border-box;
-  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
 
   body {
-    margin: 0;
     font-family: var(--font-sans);
-    background: #f8f9f6;
-    color: #2c2d28;
+    background: var(--surface-page);
+    color: #1e293b;
     line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  h1, h2, h3, h4 {
-    font-weight: 600;
-    line-height: 1.3;
+  h1, h2, h3, h4, h5 {
+    font-weight: 700;
+    line-height: 1.25;
+    color: #0f172a;
   }
 
-  /* Focus ring yang lebih cantik */
-  .focus-visible {
-    @apply outline-none ring-2 ring-emerald-400 ring-offset-2;
-  }
-}
+  a { text-decoration: none; color: inherit; }
 
-@layer components {
-  /* Card yang sering dipakai */
-  .card {
-    @apply bg-white border border-neutral-200 rounded-3xl shadow-sm;
-  }
-
-  /* Modal */
-  .modal {
-    @apply bg-white rounded-3xl shadow-xl border border-neutral-200;
-  }
-
-  /* Button base */
-  .btn {
-    @apply inline-flex items-center justify-center rounded-2xl font-semibold transition-all active:scale-95;
-  }
-
-  .btn-primary {
-    @apply bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-200;
-  }
-
-  .btn-secondary {
-    @apply border border-neutral-300 hover:border-neutral-400 bg-white text-neutral-700;
-  }
-
-  .btn-danger {
-    @apply border border-rose-200 text-rose-700 hover:bg-rose-50;
+  ::selection {
+    background: var(--clr-brand-100);
+    color: var(--clr-brand-700);
   }
 }
 
-/* Scrollbar yang lebih halus */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* ── Custom scrollbar ─────────────────────────── */
+::-webkit-scrollbar          { width: 5px; height: 5px; }
+::-webkit-scrollbar-track    { background: transparent; }
+::-webkit-scrollbar-thumb    { background: #cbd5e1; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ── Sidebar dark scrollbar ───────────────────── */
+.sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+
+/* ── Utility: glass card ──────────────────────── */
+.glass {
+  background: rgba(255,255,255,0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.60);
 }
-::-webkit-scrollbar-thumb {
-  background-color: #a7f3d0;
-  border-radius: 20px;
+
+/* ── Component: Page wrapper ──────────────────── */
+.page-wrapper {
+  @apply space-y-8;
+}
+
+/* ── Component: Section heading ───────────────── */
+.section-title {
+  @apply text-base font-semibold text-slate-800;
+}
+
+/* ── Component: Stat pill (header badge) ─────── */
+.stat-chip {
+  @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold;
+}
+
+/* ── Animations ───────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0   rgba(16,185,129,.35); }
+  70%  { box-shadow: 0 0 0 10px rgba(16,185,129,.00); }
+  100% { box-shadow: 0 0 0 0   rgba(16,185,129,.00); }
+}
+
+.anim-fade-up  { animation: fadeUp  .4s ease both; }
+.anim-scale-in { animation: scaleIn .25s ease both; }
+
+.skeleton {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 8px;
+}
+
+/* ── Focus ring ───────────────────────────────── */
+*:focus-visible {
+  outline: 2px solid var(--clr-brand-500);
+  outline-offset: 2px;
+}
+
+/* ── Table base ───────────────────────────────── */
+.tbl {
+  @apply w-full text-sm border-collapse;
+}
+.tbl thead th {
+  @apply sticky top-0 z-10 bg-slate-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 border-b border-slate-100;
+}
+.tbl tbody td {
+  @apply px-4 py-3.5 text-slate-700 border-b border-slate-50;
+}
+.tbl tbody tr {
+  @apply transition-colors duration-100;
+}
+.tbl tbody tr:hover {
+  @apply bg-emerald-50/40;
+}
+.tbl tbody tr:last-child td {
+  @apply border-b-0;
 }

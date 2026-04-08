@@ -1,10 +1,25 @@
 import { forwardRef } from 'react';
 
-const Card = forwardRef(({ className = '', children, ...props }, ref) => {
+/**
+ * Card variants:
+ *  default  – white, subtle border, soft shadow
+ *  flat     – white, no shadow
+ *  gradient – green-tinted gradient header feel
+ *  dark     – dark card (for stats highlight)
+ */
+const Card = forwardRef(({ className = '', variant = 'default', children, ...props }, ref) => {
+  const base = 'rounded-2xl transition-shadow duration-200';
+  const variants = {
+    default:  'bg-white border border-slate-100 shadow-sm hover:shadow-md',
+    flat:     'bg-white border border-slate-100',
+    gradient: 'bg-gradient-to-br from-emerald-50 to-white border border-emerald-100 shadow-sm hover:shadow-md',
+    dark:     'bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 shadow-lg text-white',
+  };
+
   return (
     <div
       ref={ref}
-      className={`bg-white border border-neutral-100 rounded-3xl shadow-card hover:shadow-xl transition-shadow duration-300 ${className}`}
+      className={`${base} ${variants[variant]} ${className}`}
       {...props}
     >
       {children}
@@ -12,4 +27,5 @@ const Card = forwardRef(({ className = '', children, ...props }, ref) => {
   );
 });
 
+Card.displayName = 'Card';
 export default Card;

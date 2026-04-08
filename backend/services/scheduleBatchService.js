@@ -151,6 +151,31 @@ const normalizeExportColumnLabels = (rombels) => {
   });
 };
 
+const normalizeRombelType = (value) => String(value || '').trim().toLowerCase();
+
+const compareRombelOrder = (a, b) => {
+  const typePriority = {
+    utama: 0,
+    wajib: 0,
+    peminatan: 1
+  };
+  const aType = normalizeRombelType(a?.type);
+  const bType = normalizeRombelType(b?.type);
+  const aPriority = typePriority[aType] ?? 2;
+  const bPriority = typePriority[bType] ?? 2;
+  if (aPriority !== bPriority) {
+    return aPriority - bPriority;
+  }
+
+  const aGrade = Number(a?.gradeLevel) || 0;
+  const bGrade = Number(b?.gradeLevel) || 0;
+  if (aGrade !== bGrade) {
+    return aGrade - bGrade;
+  }
+
+  return String(a?.name || '').localeCompare(String(b?.name || ''), 'id-ID');
+};
+
 const buildScheduleMatrixDataset = (items) => {
   const rombelMap = new Map();
   const rowMap = new Map();
@@ -181,8 +206,15 @@ const buildScheduleMatrixDataset = (items) => {
 
     const rombelId = Number(item.teachingAssignment?.rombel?.id || item.rombelId || 0);
     const rombelName = item.teachingAssignment?.rombel?.name || `Rombel #${rombelId || '-'}`;
+    const rombelType = item.teachingAssignment?.rombel?.type || null;
+    const rombelGradeLevel = item.teachingAssignment?.rombel?.gradeLevel || null;
     if (!rombelMap.has(rombelId)) {
-      rombelMap.set(rombelId, { id: rombelId, name: rombelName });
+      rombelMap.set(rombelId, {
+        id: rombelId,
+        name: rombelName,
+        type: rombelType,
+        gradeLevel: rombelGradeLevel
+      });
     }
 
     const mapelName = item.teachingAssignment?.subject?.name || '-';
@@ -196,7 +228,7 @@ const buildScheduleMatrixDataset = (items) => {
   });
 
   const rombels = normalizeExportColumnLabels(
-    [...rombelMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'id-ID'))
+    [...rombelMap.values()].sort(compareRombelOrder)
   );
 
   const rows = [...rowMap.values()]
@@ -573,10 +605,42 @@ const generateDraftScheduleBatch = async ({ periodId, constraints, userId }) => 
   const scheduleItems = schedulerResult.scheduleItems;
 
   if (!scheduleItems.length) {
-    const schedulerMessage = schedulerResult.conflicts?.[0]?.message
+    const primaryConflict = schedulerResult.conflicts?.[0] || null;
+    const diagnosticMessage = primaryConflict?.details?.diagnostics?.[0]?.message
+      || primaryConflict?.details?.body?.conflicts?.[0]?.message
+      || primaryConflict?.details?.body?.detail
+      || null;
+
+    let schedulerMessage = primaryConflict?.message
       || schedulerResult.warnings?.[0]?.message
       || 'Scheduler tidak mengembalikan item jadwal';
-    throw serviceError(422, `Gagal membuat draft jadwal: ${schedulerMessage}`);
+
+    if (diagnosticMessage && !schedulerMessage.includes(diagnosticMessage)) {
+      schedulerMessage = `${schedulerMessage} | detail: ${diagnosticMessage}`;
+    }
+
+    const reasonCode = primaryConflict?.code || schedulerResult.fallbackReason?.code || null;
+    if (reasonCode && !schedulerMessage.includes(`[${reasonCode}]`)) {
+      schedulerMessage = `[${reasonCode}] ${schedulerMessage}`;
+    }
+
+    throw serviceError(
+      422,
+      `Gagal membuat draft jadwal: ${schedulerMessage}`,
+      {
+        scheduler: {
+          source: schedulerResult.source,
+          engine: schedulerResult.engine,
+          generatedAt: schedulerResult.generatedAt,
+          requestMeta: schedulerResult.requestMeta,
+          fallbackReason: schedulerResult.fallbackReason,
+          summary: schedulerResult.summary,
+          conflict: primaryConflict,
+          warning: schedulerResult.warnings?.[0] || null
+        }
+      },
+      reasonCode || 'SCHEDULE_GENERATE_EMPTY_RESULT'
+    );
   }
 
   const transaction = await sequelize.transaction();
