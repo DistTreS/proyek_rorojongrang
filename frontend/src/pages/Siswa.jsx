@@ -9,21 +9,10 @@ import Modal from '../components/ui/Modal';
 import Pagination from '../components/ui/Pagination';
 import { useAuth } from '../context/useAuth';
 import { ADMIN_ROLES, canAccess } from '../constants/rbac';
-import {
-  buildPageParams,
-  DEFAULT_PAGE_SIZE,
-  fetchAllPages,
-  normalizePaginatedResponse
-} from '../utils/pagination';
+import { buildPageParams, DEFAULT_PAGE_SIZE, fetchAllPages, normalizePaginatedResponse } from '../utils/pagination';
 import { isValidDateOnly } from '../utils/temporalValidation';
 
-const emptyForm = {
-  nis: '',
-  name: '',
-  gender: '',
-  birthDate: '',
-  rombelIds: []
-};
+const emptyForm = { nis: '', name: '', gender: '', birthDate: '', rombelIds: [] };
 
 const genderOptions = [
   { value: '', label: 'Pilih Jenis Kelamin' },
@@ -41,382 +30,243 @@ const Siswa = () => {
   const { roles } = useAuth();
   const canManage = canAccess(roles, ADMIN_ROLES);
 
-  const [students, setStudents] = useState([]);
-  const [rombels, setRombels] = useState([]);
-  const [form, setForm] = useState(emptyForm);
-  const [editingId, setEditingId] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [modal, setModal] = useState({ type: null, item: null });
-  const [importFile, setImportFile] = useState(null);
+  const [students,     setStudents]     = useState([]);
+  const [rombels,      setRombels]      = useState([]);
+  const [form,         setForm]         = useState(emptyForm);
+  const [editingId,    setEditingId]    = useState(null);
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState(null);
+  const [modal,        setModal]        = useState({ type: null, item: null });
+  const [importFile,   setImportFile]   = useState(null);
   const [importResult, setImportResult] = useState(null);
-  const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({
-    page: 1,
-    pageSize: DEFAULT_PAGE_SIZE,
-    totalItems: 0,
-    totalPages: 1
-  });
+  const [search,       setSearch]       = useState('');
+  const [page,         setPage]         = useState(1);
+  const [pagination,   setPagination]   = useState({ page: 1, pageSize: DEFAULT_PAGE_SIZE, totalItems: 0, totalPages: 1 });
 
-  const load = async (nextPage = page) => {
-    setLoading(true);
-    setError(null);
+  const load = async (nextPage = page, nextSearch = search) => {
+    setLoading(true); setError(null);
     try {
       const [studentRes, rombelRes] = await Promise.all([
-        api.get('/siswa', {
-          params: buildPageParams({
-            page: nextPage,
-            pageSize: DEFAULT_PAGE_SIZE
-          })
-        }),
+        api.get('/siswa', { params: buildPageParams({ page: nextPage, pageSize: DEFAULT_PAGE_SIZE, search: nextSearch || undefined }) }),
         fetchAllPages(api, '/rombel')
       ]);
       const normalized = normalizePaginatedResponse(studentRes.data);
-      setStudents(normalized.items || []);
-      setPagination(normalized);
-      setPage(normalized.page);
+      setStudents(normalized.items || []); setPagination(normalized); setPage(normalized.page);
       setRombels(rombelRes || []);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Gagal memuat data siswa');
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError(err.response?.data?.message || 'Gagal memuat data siswa'); }
+    finally { setLoading(false); }
   };
 
+  useEffect(() => { load(1); }, []);
   useEffect(() => {
-    load(1);
-  }, []);
+    const t = setTimeout(() => load(1, search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
 
-  const rombelMap = useMemo(() => new Map(rombels.map(r => [r.id, r])), [rombels]);
-
-  const updateForm = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
-
-  const toggleRombel = (id) => {
-    setForm(prev => {
-      const exists = prev.rombelIds.includes(id);
-      return {
-        ...prev,
-        rombelIds: exists ? prev.rombelIds.filter(i => i !== id) : [...prev.rombelIds, id]
-      };
-    });
-  };
-
-  const resetForm = () => {
-    setForm(emptyForm);
-    setEditingId(null);
-  };
+  const rombelMap   = useMemo(() => new Map(rombels.map(r => [r.id, r])), [rombels]);
+  const updateForm  = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+  const toggleRombel = (id) => setForm(prev => ({ ...prev, rombelIds: prev.rombelIds.includes(id) ? prev.rombelIds.filter(i => i !== id) : [...prev.rombelIds, id] }));
+  const resetForm   = () => { setForm(emptyForm); setEditingId(null); };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError(null);
-
-    if (!form.nis.trim() || !form.name.trim()) {
-      setError('NIS dan nama wajib diisi');
-      return;
-    }
-    if (form.birthDate && !isValidDateOnly(form.birthDate)) {
-      setError('Tanggal lahir tidak valid');
-      return;
-    }
-
-    const payload = {
-      nis: form.nis.trim(),
-      name: form.name.trim(),
-      gender: form.gender || null,
-      birthDate: form.birthDate || null,
-      rombelIds: form.rombelIds
-    };
-
+    e.preventDefault(); setError(null);
+    if (!form.nis.trim() || !form.name.trim()) { setError('NIS dan nama wajib diisi'); return; }
+    if (form.birthDate && !isValidDateOnly(form.birthDate)) { setError('Tanggal lahir tidak valid'); return; }
+    const payload = { nis: form.nis.trim(), name: form.name.trim(), gender: form.gender || null, birthDate: form.birthDate || null, rombelIds: form.rombelIds };
     try {
-      if (editingId) {
-        await api.put(`/siswa/${editingId}`, payload);
-      } else {
-        await api.post('/siswa', payload);
-      }
-      setModal({ type: null });
-      resetForm();
-      load();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Gagal menyimpan siswa');
-    }
+      if (editingId) await api.put(`/siswa/${editingId}`, payload);
+      else           await api.post('/siswa', payload);
+      setModal({ type: null }); resetForm(); load();
+    } catch (err) { setError(err.response?.data?.message || 'Gagal menyimpan siswa'); }
   };
 
-  const handleEdit = (student) => {
-    setEditingId(student.id);
-    setForm({
-      nis: student.nis,
-      name: student.name,
-      gender: student.gender || '',
-      birthDate: student.birthDate || '',
-      rombelIds: student.rombels?.map(r => r.id) || []
-    });
-    setModal({ type: 'edit', item: student });
-  };
-
-  const handleDelete = (student) => setModal({ type: 'delete', item: student });
-
+  const handleEdit  = (s) => { setEditingId(s.id); setForm({ nis: s.nis, name: s.name, gender: s.gender || '', birthDate: s.birthDate || '', rombelIds: s.rombels?.map(r => r.id) || [] }); setModal({ type: 'edit', item: s }); };
+  const handleDelete = (s) => setModal({ type: 'delete', item: s });
   const handleConfirmDelete = async () => {
     if (!modal.item) return;
-    try {
-      await api.delete(`/siswa/${modal.item.id}`);
-      setModal({ type: null });
-      load();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Gagal menghapus siswa');
-    }
+    try { await api.delete(`/siswa/${modal.item.id}`); setModal({ type: null }); load(); }
+    catch (err) { setError(err.response?.data?.message || 'Gagal menghapus siswa'); }
   };
 
-  const openCreate = () => {
-    resetForm();
-    setModal({ type: 'create' });
-  };
-
-  const openDetail = (student) => setModal({ type: 'detail', item: student });
-
-  const closeModal = () => {
-    setModal({ type: null });
-    if (modal.type !== 'detail') resetForm();
-  };
-
-  const openImport = () => {
-    setImportFile(null);
-    setImportResult(null);
-    setModal({ type: 'import' });
-  };
+  const openCreate  = () => { resetForm(); setModal({ type: 'create' }); };
+  const openDetail  = (s) => setModal({ type: 'detail', item: s });
+  const openImport  = () => { setImportFile(null); setImportResult(null); setModal({ type: 'import' }); };
+  const closeModal  = () => { setModal({ type: null }); if (modal.type !== 'detail') resetForm(); };
 
   const downloadTemplate = async () => {
     try {
       const res = await api.get('/siswa/template', { responseType: 'blob' });
       const url = window.URL.createObjectURL(res.data);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'template-siswa.xlsx';
-      link.click();
+      const a = document.createElement('a'); a.href = url; a.download = 'template-siswa.xlsx'; a.click();
       window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setError('Gagal mengunduh template');
-    }
+    } catch { setError('Gagal mengunduh template'); }
   };
 
   const handleImport = async () => {
-    if (!importFile) {
-      setError('Pilih file Excel terlebih dahulu');
-      return;
-    }
+    if (!importFile) { setError('Pilih file Excel terlebih dahulu'); return; }
     try {
-      const formData = new FormData();
-      formData.append('file', importFile);
-      const { data } = await api.post('/siswa/import', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      setImportResult(data);
-      load();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Gagal import data');
-    }
+      const fd = new FormData(); fd.append('file', importFile);
+      const { data } = await api.post('/siswa/import', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setImportResult(data); load();
+    } catch (err) { setError(err.response?.data?.message || 'Gagal import data'); }
   };
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-4xl font-semibold text-slate-900">
-            {canManage ? 'Data Siswa' : 'Daftar Siswa'}
-          </h1>
-          <p className="text-slate-600 mt-1">
-            {canManage ? 'Kelola data siswa dan keanggotaan rombel' : 'Lihat data siswa dan keanggotaan rombel'}
-          </p>
+          <h1 className="text-2xl font-bold text-slate-900">{canManage ? 'Data Siswa' : 'Daftar Siswa'}</h1>
+          <p className="text-slate-500 text-sm mt-0.5">{canManage ? 'Kelola data siswa dan keanggotaan rombel' : 'Lihat data siswa dan keanggotaan rombel'}</p>
         </div>
-
         {canManage && (
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Button variant="secondary" onClick={openImport}>
-              Import Excel
-            </Button>
-            <Button onClick={openCreate} size="lg">
-              + Tambah Siswa
-            </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" size="sm" onClick={openImport}>↑ Import Excel</Button>
+            <Button size="sm" onClick={openCreate}>+ Tambah Siswa</Button>
           </div>
         )}
       </div>
 
-      {error && <Card className="p-4 border-red-200 bg-red-50 text-red-700">{error}</Card>}
-
-      {/* Daftar Siswa */}
-      <Card className="p-6">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-lg font-semibold">Daftar Siswa</h2>
-          <span className="text-sm text-slate-500">{pagination.totalItems} siswa</span>
+      {error && (
+        <div className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <span className="flex-1">{error}</span>
+          <button onClick={() => setError(null)} className="text-rose-400 hover:text-rose-600">✕</button>
         </div>
+      )}
 
-        <div className="space-y-4">
-          {students.map(student => (
-            <Card key={student.id} className="p-6 hover:shadow-md transition-shadow">
-              <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr_1.8fr_0.8fr] gap-4 md:items-center">
-                <div>
-                  <div className="font-semibold text-slate-900">{student.name}</div>
-                  <div className="text-xs text-slate-500">
-                    {student.gender ? (student.gender === 'L' ? 'Laki-laki' : 'Perempuan') : '-'} • {student.birthDate || '-'}
+      <Card className="overflow-hidden">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-5 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Daftar Siswa</h2>
+            {!loading && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">{pagination.totalItems}</span>}
+            {loading && <span className="text-xs text-slate-400 animate-pulse">Memuat...</span>}
+          </div>
+          <div className="w-full sm:w-64">
+            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Cari nama atau NIS..." className="text-sm" />
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Nama</th><th>NIS</th><th>Gender</th><th>Rombel</th><th className="text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!students.length && !loading && (
+                <tr><td colSpan={5} className="py-16 text-center">
+                  <div className="flex flex-col items-center gap-2 text-slate-400">
+                    <span className="text-4xl">🎓</span>
+                    <span className="text-sm font-medium">Belum ada data siswa</span>
                   </div>
-                </div>
-                <div className="text-sm font-medium text-slate-700">{student.nis}</div>
-                <div className="text-sm text-slate-700">
-                  {student.rombels?.length
-                    ? student.rombels.map(r => formatRombelLabel(rombelMap.get(r.id) || r)).join(', ')
-                    : '-'}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="secondary" size="sm" onClick={() => openDetail(student)}>
-                    Detail
-                  </Button>
-                  {canManage && (
-                    <>
-                      <Button variant="secondary" size="sm" onClick={() => handleEdit(student)}>
-                        Edit
-                      </Button>
-                      <Button variant="danger" size="sm" onClick={() => handleDelete(student)}>
-                        Hapus
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </Card>
-          ))}
-
-          {!students.length && !loading && (
-            <div className="text-center py-12 text-slate-500">Belum ada data siswa.</div>
-          )}
+                </td></tr>
+              )}
+              {students.map(s => (
+                <tr key={s.id}>
+                  <td><div className="font-semibold text-slate-900">{s.name}</div><div className="text-xs text-slate-400">{s.birthDate || '-'}</div></td>
+                  <td className="tabular-nums text-slate-600">{s.nis}</td>
+                  <td>{s.gender ? <Badge variant={s.gender === 'L' ? 'info' : 'peminatan'} size="xs">{s.gender === 'L' ? 'Laki-laki' : 'Perempuan'}</Badge> : '-'}</td>
+                  <td>
+                    <div className="flex flex-wrap gap-1">
+                      {s.rombels?.length
+                        ? s.rombels.map(r => <Badge key={r.id} variant={r.type === 'peminatan' ? 'peminatan' : 'utama'} size="xs">{r.name}</Badge>)
+                        : <span className="text-slate-400 text-xs">-</span>}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="flex items-center justify-center gap-1.5">
+                      <Button variant="ghost" size="xs" onClick={() => openDetail(s)}>Detail</Button>
+                      {canManage && <>
+                        <Button variant="secondary" size="xs" onClick={() => handleEdit(s)}>Edit</Button>
+                        <Button variant="danger" size="xs" onClick={() => handleDelete(s)}>Hapus</Button>
+                      </>}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-
-        <div className="mt-8 flex justify-center">
-          <Pagination
-            page={pagination.page}
-            totalPages={pagination.totalPages}
-            totalItems={pagination.totalItems}
-            pageSize={pagination.pageSize}
-            onPageChange={load}
-          />
+        <div className="px-5 py-4 border-t border-slate-50 flex justify-center">
+          <Pagination page={pagination.page} totalPages={pagination.totalPages} totalItems={pagination.totalItems} pageSize={pagination.pageSize} onPageChange={load} />
         </div>
       </Card>
 
-      {/* Modal */}
       <Modal
-        isOpen={!!modal.type}
-        onClose={closeModal}
-        title={
-          modal.type === 'create' ? 'Tambah Siswa' :
-          modal.type === 'edit' ? 'Edit Siswa' :
-          modal.type === 'detail' ? 'Detail Siswa' :
-          modal.type === 'delete' ? 'Hapus Siswa' : 'Import Siswa'
-        }
+        isOpen={!!modal.type} onClose={closeModal}
+        title={modal.type === 'create' ? 'Tambah Siswa Baru' : modal.type === 'edit' ? 'Edit Data Siswa' : modal.type === 'detail' ? 'Detail Siswa' : modal.type === 'delete' ? 'Konfirmasi Hapus' : 'Import Siswa'}
       >
-        {/* Create / Edit */}
         {(modal.type === 'create' || modal.type === 'edit') && (
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">NIS</label>
-                <Input value={form.nis} onChange={e => updateForm('nis', e.target.value)} required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Nama Lengkap</label>
-                <Input value={form.name} onChange={e => updateForm('name', e.target.value)} required />
-              </div>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">NIS</label><Input value={form.nis} onChange={e => updateForm('nis', e.target.value)} required /></div>
+              <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Nama Lengkap</label><Input value={form.name} onChange={e => updateForm('name', e.target.value)} required /></div>
+              <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Jenis Kelamin</label><Select value={form.gender} onChange={e => updateForm('gender', e.target.value)}>{genderOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</Select></div>
+              <div><label className="block text-sm font-semibold text-slate-700 mb-1.5">Tanggal Lahir</label><Input type="date" value={form.birthDate} onChange={e => updateForm('birthDate', e.target.value)} /></div>
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Jenis Kelamin</label>
-                <Select value={form.gender} onChange={e => updateForm('gender', e.target.value)}>
-                  {genderOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                </Select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Tanggal Lahir</label>
-                <Input type="date" value={form.birthDate} onChange={e => updateForm('birthDate', e.target.value)} />
-              </div>
-            </div>
-
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-3">Rombel (boleh lebih dari satu)</label>
-              <div className="max-h-64 overflow-auto grid grid-cols-1 sm:grid-cols-2 gap-3 border border-slate-200 rounded-2xl p-4 bg-slate-50">
-                {rombels.map(rombel => (
-                  <label key={rombel.id} className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={form.rombelIds.includes(rombel.id)}
-                      onChange={() => toggleRombel(rombel.id)}
-                    />
-                    <span className="text-sm">{formatRombelLabel(rombel)}</span>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Rombel</label>
+              <div className="max-h-52 overflow-auto grid grid-cols-1 sm:grid-cols-2 gap-2 border border-slate-200 rounded-xl p-3 bg-slate-50">
+                {rombels.map(r => (
+                  <label key={r.id} className="flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1.5 hover:bg-white transition">
+                    <input type="checkbox" checked={form.rombelIds.includes(r.id)} onChange={() => toggleRombel(r.id)} className="h-4 w-4 text-emerald-600 rounded" />
+                    <span className="text-sm text-slate-700">{formatRombelLabel(r)}</span>
                   </label>
                 ))}
               </div>
             </div>
-
-            <div className="flex flex-col sm:flex-row gap-3">
-              <Button type="submit" variant="primary" size="lg" className="flex-1">
-                {editingId ? 'Simpan Perubahan' : 'Tambah Siswa'}
-              </Button>
-              <Button type="button" variant="secondary" size="lg" onClick={closeModal}>
-                Batal
-              </Button>
+            <div className="flex flex-col sm:flex-row gap-3 pt-1">
+              <Button type="submit" className="flex-1">{editingId ? 'Simpan Perubahan' : 'Tambah Siswa'}</Button>
+              <Button type="button" variant="secondary" onClick={closeModal}>Batal</Button>
             </div>
           </form>
         )}
 
-        {/* Detail */}
         {modal.type === 'detail' && modal.item && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-              <div><span className="text-xs uppercase text-slate-500">NIS</span><p className="font-semibold">{modal.item.nis}</p></div>
-              <div><span className="text-xs uppercase text-slate-500">Nama</span><p className="font-semibold">{modal.item.name}</p></div>
-              <div><span className="text-xs uppercase text-slate-500">Gender</span><p className="font-semibold">{modal.item.gender === 'L' ? 'Laki-laki' : modal.item.gender === 'P' ? 'Perempuan' : '-'}</p></div>
-              <div><span className="text-xs uppercase text-slate-500">Tanggal Lahir</span><p className="font-semibold">{modal.item.birthDate || '-'}</p></div>
+          <div className="space-y-5">
+            <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl">
+              <div className="h-12 w-12 rounded-full bg-gradient-to-br from-sky-400 to-emerald-500 flex items-center justify-center text-white text-lg font-bold flex-shrink-0">{modal.item.name.charAt(0)}</div>
+              <div><p className="font-bold text-slate-800">{modal.item.name}</p><p className="text-xs text-slate-400 mt-0.5">NIS: {modal.item.nis}</p></div>
+            </div>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              {[{ label: 'Gender', value: modal.item.gender === 'L' ? 'Laki-laki' : modal.item.gender === 'P' ? 'Perempuan' : '-' }, { label: 'Tanggal Lahir', value: modal.item.birthDate || '-' }].map(({ label, value }) => (
+                <div key={label}><span className="text-[10px] uppercase font-bold tracking-widest text-slate-400">{label}</span><p className="font-semibold text-slate-800 mt-0.5">{value}</p></div>
+              ))}
             </div>
             <div>
-              <span className="text-xs uppercase text-slate-500">Rombel</span>
-              <p className="mt-1 font-medium">
+              <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400">Rombel</span>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
                 {modal.item.rombels?.length
-                  ? modal.item.rombels.map(r => formatRombelLabel(rombelMap.get(r.id) || r)).join(', ')
-                  : '-'}
-              </p>
+                  ? modal.item.rombels.map(r => <Badge key={r.id} variant={r.type === 'peminatan' ? 'peminatan' : 'utama'}>{formatRombelLabel(rombelMap.get(r.id) || r)}</Badge>)
+                  : <span className="text-sm text-slate-400">-</span>}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Delete */}
         {modal.type === 'delete' && modal.item && (
-          <div className="space-y-6">
-            <p className="text-slate-600">Yakin ingin menghapus siswa <span className="font-semibold">{modal.item.name}</span>?</p>
+          <div className="space-y-5">
+            <div className="rounded-xl border border-rose-100 bg-rose-50 p-4 text-sm text-rose-700">Yakin ingin menghapus siswa <strong>{modal.item.name}</strong>?</div>
             <div className="flex flex-col sm:flex-row gap-3">
-              <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">Hapus</Button>
+              <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">Ya, Hapus</Button>
               <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
             </div>
           </div>
         )}
 
-        {/* Import */}
         {modal.type === 'import' && (
-          <div className="space-y-6">
-            <div className="text-sm text-slate-600">
-              Unduh template, isi data, lalu upload kembali.
-            </div>
-            <Button variant="secondary" onClick={downloadTemplate} className="w-full">
-              📥 Download Template Excel
-            </Button>
+          <div className="space-y-5">
+            <p className="text-sm text-slate-600">Unduh template Excel, isi data siswa, lalu upload kembali.</p>
+            <Button variant="secondary" onClick={downloadTemplate} className="w-full">↓ Download Template Excel</Button>
             <Input type="file" accept=".xlsx" onChange={e => setImportFile(e.target.files?.[0] || null)} />
-            
             <div className="flex flex-col sm:flex-row gap-3">
-              <Button onClick={handleImport} className="flex-1" disabled={!importFile}>Import Data</Button>
+              <Button onClick={handleImport} className="flex-1" disabled={!importFile}>Upload &amp; Import</Button>
               <Button variant="secondary" onClick={closeModal} className="flex-1">Batal</Button>
             </div>
-
             {importResult && (
-              <Card className="p-4 bg-emerald-50 border-emerald-200">
-                <p className="text-emerald-700">Berhasil import {importResult.success} siswa.</p>
-                {importResult.failed?.length > 0 && <p className="text-xs text-emerald-600 mt-2">Gagal: {importResult.failed.length} baris</p>}
-              </Card>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+                ✅ Berhasil import <strong>{importResult.success}</strong> siswa.
+                {importResult.failed?.length > 0 && <p className="mt-1 text-amber-700">⚠️ Gagal: {importResult.failed.length} baris</p>}
+              </div>
             )}
           </div>
         )}

@@ -197,7 +197,6 @@ const CatatanSiswa = () => {
         </Card>
       )}
 
-      {/* Filters */}
       <Card className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Input
@@ -238,7 +237,6 @@ const CatatanSiswa = () => {
         </div>
       </Card>
 
-      {/* List Catatan */}
       <div className="space-y-4">
         {loading && (
           <Card className="p-4 text-sm text-slate-500">
@@ -294,7 +292,6 @@ const CatatanSiswa = () => {
         />
       </div>
 
-      {/* Modal */}
       <Modal
         isOpen={!!modal.type}
         onClose={() => { setModal({ type: null }); resetForm(); }}
@@ -304,7 +301,6 @@ const CatatanSiswa = () => {
           modal.type === 'detail' ? 'Detail Catatan' : 'Hapus Catatan'
         }
       >
-        {/* Modal Create / Edit */}
         {(modal.type === 'create' || modal.type === 'edit') && (
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
@@ -371,7 +367,6 @@ const CatatanSiswa = () => {
           </form>
         )}
 
-        {/* Modal Detail */}
         {modal.type === 'detail' && modal.item && (
           <div className="space-y-4">
             <div className="flex justify-between">
@@ -385,7 +380,6 @@ const CatatanSiswa = () => {
           </div>
         )}
 
-        {/* Modal Delete */}
         {modal.type === 'delete' && modal.item && (
           <div className="space-y-6">
             <p className="text-slate-600">

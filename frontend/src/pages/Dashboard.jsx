@@ -10,7 +10,6 @@ import Badge from '../components/ui/Badge';
 import Icon from '../components/ui/Icon';
 import { motion } from 'framer-motion';
 
-/* ── Icon map for quick-access links ── */
 const navIconMap = {
   '/':           'LayoutDashboard',
   '/pengampu':   'BookOpen',
@@ -27,7 +26,6 @@ const navIconMap = {
   '/user-access':'ShieldCheck',
 };
 
-/* ── Stat Card ── */
 const StatCard = ({ label, value, icon, color = 'emerald', delay = 0 }) => {
   const palette = {
     emerald: { bg: 'bg-emerald-50', icon: 'text-emerald-600', val: 'text-emerald-700', ring: 'ring-emerald-100' },
@@ -56,7 +54,6 @@ const StatCard = ({ label, value, icon, color = 'emerald', delay = 0 }) => {
   );
 };
 
-/* ── Quick Link Card ── */
 const QuickLink = ({ item, delay }) => (
   <motion.div
     initial={{ opacity: 0, y: 12 }}
@@ -87,7 +84,6 @@ const QuickLink = ({ item, delay }) => (
   </motion.div>
 );
 
-/* ── Attendance legend row ── */
 const AttRow = ({ color, label, value, total }) => {
   const pct = total > 0 ? Math.round((value / total) * 100) : 0;
   return (
@@ -100,7 +96,6 @@ const AttRow = ({ color, label, value, total }) => {
   );
 };
 
-/* ── Dashboard ─────────────────────────── */
 const Dashboard = () => {
   const { logout, roles }  = useAuth();
   const [profile, setProfile]   = useState(null);
@@ -144,15 +139,12 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-8">
-
-      {/* ── Hero greeting ── */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
         className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0f1629] to-[#1a2744] p-6 sm:p-8 text-white shadow-xl"
       >
-        {/* Decorative blob */}
         <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-emerald-500/15 blur-3xl" />
         <div className="pointer-events-none absolute bottom-0 right-1/3 h-40 w-40 rounded-full bg-emerald-700/10 blur-2xl" />
 
@@ -180,7 +172,6 @@ const Dashboard = () => {
         </div>
       </motion.div>
 
-      {/* ── Role Focus ── */}
       {roleSummary.focus && (
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -202,7 +193,6 @@ const Dashboard = () => {
         </motion.div>
       )}
 
-      {/* ── Stats ── */}
       {overview && (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard label="Total Siswa"   value={overview.students}            icon="GraduationCap" color="emerald" delay={0.08} />
@@ -212,10 +202,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* ── Bottom row: Quick access + Attendance ── */}
       <div className="grid gap-6 lg:grid-cols-5">
-
-        {/* Quick access (3/5) */}
         {navSections.length > 0 && (
           <div className="lg:col-span-3 space-y-5">
             <h2 className="section-title px-0.5">Akses Cepat</h2>
@@ -229,7 +216,6 @@ const Dashboard = () => {
           </div>
         )}
 
-        {/* Attendance chart (2/5) */}
         {overview && (
           <div className="lg:col-span-2 space-y-5">
             <h2 className="section-title px-0.5">Presensi Bulan Ini</h2>

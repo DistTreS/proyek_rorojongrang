@@ -176,31 +176,30 @@ const Presensi = () => {
   const handleCreateMeeting = async (event) => {
     event.preventDefault();
     setError(null);
+
+    // Guard clause validation BEFORE setSaving to avoid stuck loading state
+    const isManualMeeting = meetingForm.mode === 'manual';
+    const assignment = assignmentMap.get(Number(meetingForm.teachingAssignmentId));
+
+    if (!meetingForm.date || !isValidDateOnly(meetingForm.date)) {
+      setError('Tanggal pertemuan tidak valid');
+      return;
+    }
+    if (!meetingForm.timeSlotIds.length) {
+      setError('Pilih minimal satu jam pelajaran');
+      return;
+    }
+    if (!isManualMeeting && !assignment) {
+      setError('Pilih jadwal mengajar terlebih dahulu');
+      return;
+    }
+    if (isManualMeeting && (!meetingForm.rombelId || !meetingForm.subjectId)) {
+      setError('Rombel dan mapel wajib dipilih untuk pertemuan manual');
+      return;
+    }
+
     setSaving(true);
     try {
-      const isManualMeeting = meetingForm.mode === 'manual';
-      const assignment = assignmentMap.get(Number(meetingForm.teachingAssignmentId));
-
-      if (!meetingForm.date || !isValidDateOnly(meetingForm.date)) {
-        setError('Tanggal pertemuan tidak valid');
-        return;
-      }
-
-      if (!meetingForm.timeSlotIds.length) {
-        setError('Pilih minimal satu jam pelajaran');
-        return;
-      }
-
-      if (!isManualMeeting && !assignment) {
-        setError('Pilih jadwal mengajar terlebih dahulu');
-        return;
-      }
-
-      if (isManualMeeting && (!meetingForm.rombelId || !meetingForm.subjectId)) {
-        setError('Rombel dan mapel wajib dipilih untuk pertemuan manual');
-        return;
-      }
-
       const payload = {
         mode: meetingForm.mode,
         date: meetingForm.date,
@@ -211,9 +210,10 @@ const Presensi = () => {
       };
       const { data } = await api.post('/attendance/meetings', payload);
       await load();
-      setModal({ type: 'detail', item: { meetingId: data.meetingId } });
+      closeModal();
       const detailRes = await api.get(`/attendance/meetings/${data.meetingId}`);
       setDetail(detailRes.data);
+      setModal({ type: 'detail', item: { meetingId: data.meetingId } });
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal membuat pertemuan');
     } finally {
@@ -245,6 +245,7 @@ const Presensi = () => {
       }));
       await api.put(`/attendance/meetings/${detail.meetingId}/entries`, { entries });
       await load();
+      closeModal(); // ← FIX: tutup modal setelah simpan berhasil
     } catch (err) {
       setError(err.response?.data?.message || 'Gagal menyimpan presensi');
     } finally {
@@ -397,7 +398,6 @@ const Presensi = () => {
         </Card>
       )}
 
-      {/* Daftar Pertemuan */}
       <Card className="p-6">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-semibold">Daftar Pertemuan</h2>
@@ -456,7 +456,6 @@ const Presensi = () => {
         </div>
       </Card>
 
-      {/* Modal Create & Detail */}
       <Modal
         isOpen={!!modal.type}
         onClose={closeModal}
@@ -650,7 +649,6 @@ const Presensi = () => {
 
         {modal.type === 'detail' && detail && (
           <div className="space-y-6">
-            {/* Detail header */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 text-sm">
               <div><span className="text-xs uppercase text-slate-500">Tanggal</span><p className="font-semibold">{detail.date}</p></div>
               <div><span className="text-xs uppercase text-slate-500">Rombel</span><p className="font-semibold">{formatRombelLabel(detail.rombel)}</p></div>
@@ -658,7 +656,6 @@ const Presensi = () => {
               <div><span className="text-xs uppercase text-slate-500">Jam</span><p className="font-semibold">{detail.timeSlots?.map(s => `${dayOptions.find(d => d.value === s.dayOfWeek)?.label} ${s.startTime}-${s.endTime}`).join(', ')}</p></div>
             </div>
 
-            {/* Student list */}
             <Card className="p-0">
               <div className="max-h-[420px] overflow-auto">
                 {detail.students.map((student) => (

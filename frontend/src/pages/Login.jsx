@@ -34,14 +34,12 @@ const Login = () => {
 
   return (
     <div className="min-h-screen flex">
-      {/* ── Left: Form ─────────────────────────── */}
       <motion.div
         initial={{ opacity: 0, x: -24 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.5, ease: 'easeOut' }}
         className="relative z-10 flex w-full flex-col justify-center px-6 py-12 sm:px-10 lg:w-[46%] xl:w-[42%] bg-white"
       >
-        {/* Logo */}
         <div className="mb-10">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-700 flex items-center justify-center text-white font-extrabold text-xl shadow-lg shadow-emerald-200">
@@ -54,7 +52,6 @@ const Login = () => {
           </div>
         </div>
 
-        {/* Heading */}
         <div className="mb-8">
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
             Selamat Datang 👋
@@ -64,7 +61,6 @@ const Login = () => {
           </p>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label className="mb-1.5 block text-sm font-semibold text-slate-700">
@@ -108,7 +104,6 @@ const Login = () => {
             </div>
           </div>
 
-          {/* Error */}
           {error && (
             <motion.div
               initial={{ opacity: 0, y: -6 }}
@@ -135,13 +130,11 @@ const Login = () => {
           </Button>
         </form>
 
-        {/* Footer */}
         <p className="mt-10 text-center text-xs text-slate-400">
           © {new Date().getFullYear()} SMA Negeri 1 Hiliran Gumanti · All Rights Reserved
         </p>
       </motion.div>
 
-      {/* ── Right: Hero Image ───────────────────── */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -149,23 +142,18 @@ const Login = () => {
         className="hidden lg:flex flex-1 relative overflow-hidden"
         style={{ background: '#0f1629' }}
       >
-        {/* Gradient overlay top */}
         <div className="absolute inset-0 bg-gradient-to-br from-emerald-900/60 via-slate-900/40 to-slate-900/80 z-10" />
 
-        {/* Hero image */}
         <img
           src="/images/login-hero.jpeg"
           alt="SMA 1 Hiliran Gumanti"
           className="absolute inset-0 h-full w-full object-cover opacity-50"
         />
 
-        {/* Decorative blobs */}
         <div className="absolute -top-32 -right-32 h-96 w-96 rounded-full bg-emerald-500/20 blur-3xl z-10" />
         <div className="absolute bottom-0 left-0 h-64 w-64 rounded-full bg-emerald-700/20 blur-2xl z-10" />
 
-        {/* Content */}
         <div className="relative z-20 flex flex-col justify-end p-12 xl:p-16 w-full">
-          {/* Stats bar */}
           <div className="mb-8 flex gap-6">
             {[
               { label: 'Siswa', value: '900+' },
@@ -186,7 +174,6 @@ const Login = () => {
             Sistem Informasi Akademik terpadu untuk pengelolaan jadwal, kehadiran, dan laporan.
           </p>
 
-          {/* Feature chips */}
           <div className="mt-6 flex flex-wrap gap-2">
             {['Penjadwalan Otomatis', 'Presensi Digital', 'Laporan Real-time'].map(f => (
               <span key={f} className="inline-flex items-center gap-1.5 rounded-full bg-white/10 border border-white/15 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur-sm">

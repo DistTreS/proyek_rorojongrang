@@ -122,7 +122,6 @@ const Profile = () => {
 
   return (
     <div className="space-y-10">
-      {/* Header Profil */}
       <div className="flex flex-col items-center text-center">
         <motion.div
           initial={{ scale: 0.95, opacity: 0 }}
@@ -168,7 +167,6 @@ const Profile = () => {
         </div>
       </div>
 
-      {/* Form */}
       <Card className="max-w-2xl mx-auto p-8">
         <h2 className="text-2xl font-semibold mb-8">Perbarui Informasi</h2>
 

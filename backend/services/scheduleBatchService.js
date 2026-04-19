@@ -991,10 +991,40 @@ const changeDraftScheduleAssignment = async (id, { teachingAssignmentId }) => {
   });
 };
 
+const deleteScheduleBatch = async (batchId) => {
+  const batch = await ScheduleBatch.findByPk(batchId);
+  if (!batch) {
+    throw serviceError(404, 'Batch jadwal tidak ditemukan');
+  }
+  if (batch.status === 'approved') {
+    throw serviceError(403, 'Batch yang sudah disetujui tidak dapat dihapus');
+  }
+
+  const transaction = await sequelize.transaction();
+  try {
+    // hapus semua schedule items terlebih dahulu (child records)
+    await Schedule.destroy({ where: { batchId: batch.id }, transaction });
+    // hapus log
+    await ScheduleBatchLog.destroy({ where: { batchId: batch.id }, transaction });
+    // hapus batch
+    await batch.destroy({ transaction });
+    await transaction.commit();
+    return {
+      message: `Batch V${batch.versionNumber} (${batch.status}) berhasil dihapus`,
+      deletedBatchId: batch.id
+    };
+  } catch (err) {
+    await transaction.rollback();
+    throw err.status ? err : serviceError(500, 'Gagal menghapus batch jadwal');
+  }
+};
+
+
 module.exports = {
   BATCH_STATUSES,
   approveScheduleBatch,
   changeDraftScheduleAssignment,
+  deleteScheduleBatch,
   exportScheduleItems,
   generateDraftScheduleBatch,
   getScheduleBatchDetail,

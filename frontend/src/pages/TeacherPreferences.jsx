@@ -215,7 +215,6 @@ const TeacherPreferences = () => {
         </Card>
       )}
 
-      {/* Filter */}
       <Card className="p-6">
         <Select
           value={filterPeriodId}
@@ -231,7 +230,6 @@ const TeacherPreferences = () => {
         </Select>
       </Card>
 
-      {/* Daftar Preferensi */}
       <Card className="p-6">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-semibold">Daftar Preferensi Guru</h2>
@@ -290,7 +288,6 @@ const TeacherPreferences = () => {
         </div>
       </Card>
 
-      {/* Modal */}
       <Modal
         isOpen={!!modal.type}
         onClose={closeModal}

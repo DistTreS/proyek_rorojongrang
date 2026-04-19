@@ -1,11 +1,8 @@
 @import "tailwindcss";
 
-/* ── Google Font ──────────────────────────────── */
 @layer base {
   :root {
     --font-sans: 'Inter', system-ui, sans-serif;
-
-    /* Brand palette */
     --clr-brand-50:  #ecfdf5;
     --clr-brand-100: #d1fae5;
     --clr-brand-300: #6ee7b7;
@@ -13,8 +10,6 @@
     --clr-brand-500: #10b981;
     --clr-brand-600: #059669;
     --clr-brand-700: #047857;
-
-    /* Sidebar dark */
     --sidebar-bg:    #0f1629;
     --sidebar-hover: rgba(255,255,255,0.07);
     --sidebar-active-bg: rgba(16,185,129,0.18);
@@ -22,13 +17,9 @@
     --sidebar-text:  rgba(255,255,255,0.60);
     --sidebar-label: rgba(255,255,255,0.28);
     --sidebar-border: rgba(255,255,255,0.06);
-
-    /* Surface */
     --surface-page: #f0f4f8;
     --surface-card: #ffffff;
     --surface-card-border: rgba(0,0,0,0.06);
-    
-    /* Radius */
     --radius-card: 1.25rem;
     --radius-btn:  0.875rem;
     --radius-input: 0.75rem;
@@ -61,16 +52,13 @@
   }
 }
 
-/* ── Custom scrollbar ─────────────────────────── */
 ::-webkit-scrollbar          { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track    { background: transparent; }
 ::-webkit-scrollbar-thumb    { background: #cbd5e1; border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
-/* ── Sidebar dark scrollbar ───────────────────── */
 .sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
 
-/* ── Utility: glass card ──────────────────────── */
 .glass {
   background: rgba(255,255,255,0.72);
   backdrop-filter: blur(12px);
@@ -78,22 +66,18 @@
   border: 1px solid rgba(255,255,255,0.60);
 }
 
-/* ── Component: Page wrapper ──────────────────── */
 .page-wrapper {
   @apply space-y-8;
 }
 
-/* ── Component: Section heading ───────────────── */
 .section-title {
   @apply text-base font-semibold text-slate-800;
 }
 
-/* ── Component: Stat pill (header badge) ─────── */
 .stat-chip {
   @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold;
 }
 
-/* ── Animations ───────────────────────────────── */
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(14px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -122,13 +106,11 @@
   border-radius: 8px;
 }
 
-/* ── Focus ring ───────────────────────────────── */
 *:focus-visible {
   outline: 2px solid var(--clr-brand-500);
   outline-offset: 2px;
 }
 
-/* ── Table base ───────────────────────────────── */
 .tbl {
   @apply w-full text-sm border-collapse;
 }
@@ -147,3 +129,25 @@
 .tbl tbody tr:last-child td {
   @apply border-b-0;
 }
+
+.page-header {
+  @apply flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6;
+}
+.page-title {
+  @apply text-2xl font-bold text-slate-900;
+}
+.page-desc {
+  @apply text-slate-500 text-sm mt-0.5;
+}
+
+.alert {
+  @apply flex items-start gap-3 rounded-xl border px-4 py-3 text-sm;
+}
+.alert-success { @apply border-emerald-200 bg-emerald-50 text-emerald-700; }
+.alert-error   { @apply border-rose-200   bg-rose-50   text-rose-700;    }
+.alert-warning { @apply border-amber-200  bg-amber-50  text-amber-700;   }
+.alert-info    { @apply border-sky-200    bg-sky-50    text-sky-700;     }
+
+.cell-wajib      { @apply rounded-md border border-emerald-200 bg-emerald-50/70 px-2 py-1.5; }
+.cell-peminatan  { @apply rounded-md border border-amber-200   bg-amber-50      px-2 py-1.5; }
+.cell-conflict   { @apply rounded-md border border-rose-300    bg-rose-50       px-2 py-1.5; }

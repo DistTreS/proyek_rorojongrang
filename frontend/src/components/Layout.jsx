@@ -22,7 +22,6 @@ const iconMap = {
   '/user-access': 'ShieldCheck',
 };
 
-/* ─── Sidebar Nav Item ─────────────────────────────────── */
 const NavItem = ({ item, onClick }) => (
   <NavLink
     to={item.path}
@@ -49,10 +48,8 @@ const NavItem = ({ item, onClick }) => (
   </NavLink>
 );
 
-/* ─── Sidebar Content ──────────────────────────────────── */
 const SidebarContent = ({ navSections, roleLabels, logout, onClose }) => (
   <div className="flex h-full flex-col" style={{ background: 'var(--sidebar-bg)' }}>
-    {/* Logo */}
     <div className="px-5 pt-6 pb-5">
       <div className="flex items-center gap-3">
         <div className="relative h-9 w-9 flex-shrink-0">
@@ -68,10 +65,8 @@ const SidebarContent = ({ navSections, roleLabels, logout, onClose }) => (
       </div>
     </div>
 
-    {/* Divider */}
     <div className="mx-5 h-px bg-white/[0.06]" />
 
-    {/* Role chip */}
     <div className="px-5 py-3">
       <div className="flex flex-wrap gap-1.5">
         {roleLabels.map(role => (
@@ -82,7 +77,6 @@ const SidebarContent = ({ navSections, roleLabels, logout, onClose }) => (
       </div>
     </div>
 
-    {/* Nav */}
     <nav className="sidebar-scroll flex-1 overflow-y-auto px-3 py-2 space-y-5">
       {navSections.map(section => (
         <div key={section.key}>
@@ -98,7 +92,6 @@ const SidebarContent = ({ navSections, roleLabels, logout, onClose }) => (
       ))}
     </nav>
 
-    {/* Logout */}
     <div className="p-4 border-t border-white/[0.06]">
       <button
         onClick={logout}
@@ -111,7 +104,6 @@ const SidebarContent = ({ navSections, roleLabels, logout, onClose }) => (
   </div>
 );
 
-/* ─── Layout ───────────────────────────────────────────── */
 const Layout = ({ children }) => {
   const { roles, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -123,7 +115,6 @@ const Layout = ({ children }) => {
     [roles]
   );
 
-  // Derive page title from current nav
   const pageTitle = useMemo(() => {
     for (const s of navSections) {
       for (const item of s.items) {
@@ -136,8 +127,6 @@ const Layout = ({ children }) => {
 
   return (
     <div className="flex min-h-screen bg-[var(--surface-page)]">
-
-      {/* ── Desktop Sidebar ── */}
       <aside className="hidden lg:flex w-64 xl:w-68 flex-col flex-shrink-0 sticky top-0 h-screen z-20">
         <SidebarContent
           navSections={navSections}
@@ -147,12 +136,8 @@ const Layout = ({ children }) => {
         />
       </aside>
 
-      {/* ── Main ── */}
       <div className="flex flex-1 flex-col min-w-0">
-
-        {/* ── Top Bar (Desktop + Mobile) ── */}
-        <header className="sticky top-0 z-10 flex items-center gap-4 border-b border-slate-100 bg-white/80 backdrop-blur-md px-4 sm:px-6 py-3.5">
-          {/* Mobile hamburger */}
+        <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-slate-100 bg-white/85 backdrop-blur-md px-4 sm:px-6 py-3">
           <button
             className="lg:hidden flex items-center justify-center h-9 w-9 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition"
             onClick={() => setMobileOpen(true)}
@@ -161,20 +146,28 @@ const Layout = ({ children }) => {
             <Icon name="Menu" size={20} />
           </button>
 
-          {/* Page title */}
+          <div className="lg:hidden flex items-center gap-2 flex-shrink-0">
+            <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-bold text-sm">S</div>
+          </div>
+
           <div className="flex-1 min-w-0">
             {pageTitle && (
-              <h1 className="text-base font-semibold text-slate-800 truncate">{pageTitle}</h1>
+              <h1 className="text-sm font-semibold text-slate-700 truncate">{pageTitle}</h1>
             )}
           </div>
 
-          {/* Mobile logo */}
-          <div className="lg:hidden flex items-center gap-2">
-            <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-bold text-sm">S</div>
+          <div className="hidden sm:flex items-center gap-3 flex-shrink-0">
+            <div className="text-right">
+              <p className="text-xs font-semibold text-slate-700 leading-tight">
+                {roleLabels[0] || 'Pengguna'}
+              </p>
+            </div>
+            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0 ring-2 ring-emerald-100">
+              {(roleLabels[0] || 'U').charAt(0).toUpperCase()}
+            </div>
           </div>
         </header>
 
-        {/* ── Page Content ── */}
         <main className="flex-1 overflow-auto px-4 py-6 sm:px-6 sm:py-8 xl:px-10 xl:py-10">
           <div className="mx-auto max-w-7xl">
             {children}
@@ -182,7 +175,6 @@ const Layout = ({ children }) => {
         </main>
       </div>
 
-      {/* ── Mobile Drawer ── */}
       <AnimatePresence>
         {mobileOpen && (
           <motion.div
@@ -191,12 +183,10 @@ const Layout = ({ children }) => {
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 lg:hidden"
           >
-            {/* Backdrop */}
             <div
               className="absolute inset-0 bg-black/60 backdrop-blur-sm"
               onClick={() => setMobileOpen(false)}
             />
-            {/* Drawer */}
             <motion.div
               initial={{ x: -280 }}
               animate={{ x: 0 }}

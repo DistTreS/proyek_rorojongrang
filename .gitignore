@@ -15,6 +15,7 @@ pnpm-debug.log*
 
 # Build
 frontend/dist/
+backend/coverage/
 backend/public/*
 !backend/public/uploads/
 backend/public/uploads/*

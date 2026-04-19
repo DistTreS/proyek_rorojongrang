@@ -201,7 +201,6 @@ const UserAccess = () => {
       {error && <Card className="p-4 border-red-200 bg-red-50 text-red-700">{error}</Card>}
       {message && <Card className="p-4 border-emerald-200 bg-emerald-50 text-emerald-700">{message}</Card>}
 
-      {/* Search */}
       <Card className="p-6">
         <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
           <Input
@@ -214,7 +213,6 @@ const UserAccess = () => {
         </form>
       </Card>
 
-      {/* Daftar User */}
       <Card className="p-6">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-semibold">Daftar User</h2>
@@ -271,7 +269,6 @@ const UserAccess = () => {
         </div>
       </Card>
 
-      {/* Modal */}
       <Modal
         isOpen={!!modal.type}
         onClose={closeModal}
@@ -281,7 +278,6 @@ const UserAccess = () => {
           modal.type === 'detail' ? 'Detail User' : 'Hapus User'
         }
       >
-        {/* Create & Edit Form */}
         {(modal.type === 'create' || modal.type === 'edit') && (
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -344,7 +340,6 @@ const UserAccess = () => {
           </form>
         )}
 
-        {/* Detail */}
         {modal.type === 'detail' && modal.item && (
           <div className="space-y-6 text-sm">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -364,7 +359,6 @@ const UserAccess = () => {
           </div>
         )}
 
-        {/* Delete */}
         {modal.type === 'delete' && modal.item && (
           <div className="space-y-6">
             <p className="text-slate-600">Yakin ingin menghapus user <span className="font-semibold">{modal.item.username}</span>?</p>

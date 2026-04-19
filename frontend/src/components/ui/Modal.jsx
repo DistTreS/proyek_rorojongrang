@@ -14,7 +14,6 @@ const Modal = ({ isOpen, onClose, children, title, size = 'md' }) => {
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
-          {/* Backdrop */}
           <motion.div
             key="backdrop"
             initial={{ opacity: 0 }}
@@ -25,7 +24,6 @@ const Modal = ({ isOpen, onClose, children, title, size = 'md' }) => {
             onClick={onClose}
           />
 
-          {/* Panel */}
           <motion.div
             key="modal"
             initial={{ opacity: 0, scale: 0.96, y: 16 }}
@@ -39,7 +37,6 @@ const Modal = ({ isOpen, onClose, children, title, size = 'md' }) => {
               flex flex-col overflow-hidden
             `}
           >
-            {/* Header */}
             {title && (
               <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 flex-shrink-0">
                 <h3 className="text-base font-semibold text-slate-800">{title}</h3>
@@ -53,7 +50,6 @@ const Modal = ({ isOpen, onClose, children, title, size = 'md' }) => {
               </div>
             )}
 
-            {/* Body */}
             <div className="overflow-y-auto flex-1 p-4 sm:p-6">
               {children}
             </div>

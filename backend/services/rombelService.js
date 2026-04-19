@@ -20,17 +20,29 @@ const formatRombel = (rombel) => ({
   periodName: rombel.AcademicPeriod?.name || null
 });
 
+const VALID_GRADE_LEVELS = [10, 11, 12];
+
+const parseGradeLevel = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const num = Number(value);
+  return Number.isInteger(num) ? num : null;
+};
+
 const validateRombelInput = async ({ name, gradeLevel, type, periodId }, { excludeId } = {}) => {
   const normalizedName = normalizeText(name);
   const normalizedType = normalizeEnumValue(type, ROMBEL_TYPES, 'Jenis rombel', 'utama');
-  const normalizedGradeLevel = normalizeNullableText(gradeLevel);
+  const parsedGradeLevel = parseGradeLevel(gradeLevel);
 
   if (!normalizedName) {
     throw serviceError(400, 'Nama rombel wajib diisi');
   }
 
-  if (normalizedType === 'utama' && !normalizedGradeLevel) {
-    throw serviceError(400, 'Tingkat wajib diisi untuk rombel utama');
+  if (normalizedType === 'utama' && parsedGradeLevel === null) {
+    throw serviceError(400, 'Tingkat wajib diisi untuk rombel utama (10, 11, atau 12)');
+  }
+
+  if (parsedGradeLevel !== null && !VALID_GRADE_LEVELS.includes(parsedGradeLevel)) {
+    throw serviceError(400, `Tingkat kelas tidak valid. Pilihan: ${VALID_GRADE_LEVELS.join(', ')}`);
   }
 
   const period = await ensureAcademicPeriod(periodId);
@@ -50,7 +62,7 @@ const validateRombelInput = async ({ name, gradeLevel, type, periodId }, { exclu
 
   return {
     name: normalizedName,
-    gradeLevel: normalizedGradeLevel,
+    gradeLevel: parsedGradeLevel,
     type: normalizedType,
     period
   };

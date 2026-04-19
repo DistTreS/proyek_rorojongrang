@@ -1,5 +1,6 @@
 const {
   approveScheduleBatch,
+  deleteScheduleBatch,
   exportScheduleItems,
   getScheduleBatchDetail,
   changeDraftScheduleAssignment,
@@ -175,6 +176,15 @@ const rejectBatch = async (req, res) => {
   }
 };
 
+const deleteBatch = async (req, res) => {
+  try {
+    const data = await deleteScheduleBatch(req.params.batchId);
+    return res.json(data);
+  } catch (err) {
+    return handleControllerError(res, err, 'Gagal menghapus batch jadwal');
+  }
+};
+
 const exportSchedule = async (req, res) => {
   try {
     const data = await exportScheduleItems({
@@ -201,5 +211,6 @@ module.exports = {
   exportSchedule,
   submitBatch,
   approveBatch,
-  rejectBatch
+  rejectBatch,
+  deleteBatch
 };

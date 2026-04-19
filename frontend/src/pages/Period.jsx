@@ -166,7 +166,6 @@ const Period = () => {
         </Card>
       )}
 
-      {/* Daftar Periode */}
       <Card className="p-6">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-semibold">Daftar Periode</h2>
@@ -208,7 +207,6 @@ const Period = () => {
           )}
         </div>
 
-        {/* Pagination */}
         <div className="mt-8 flex justify-center">
           <Pagination
             page={pagination.page}
@@ -220,7 +218,6 @@ const Period = () => {
         </div>
       </Card>
 
-      {/* Modal */}
       <Modal
         isOpen={!!modal.type}
         onClose={closeModal}

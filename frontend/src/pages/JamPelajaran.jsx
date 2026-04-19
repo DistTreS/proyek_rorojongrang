@@ -162,7 +162,6 @@ const JamPelajaran = () => {
         </div>
       )}
 
-      {/* Filter */}
       <Card className="p-6">
         <div className="flex flex-col sm:flex-row gap-4">
           <Select 
@@ -182,7 +181,6 @@ const JamPelajaran = () => {
         </div>
       </Card>
 
-      {/* Daftar Jam */}
       <div className="space-y-4">
         {slots.map(slot => (
           <Card key={slot.id} className="p-6 hover:shadow-md transition-shadow">
@@ -232,7 +230,6 @@ const JamPelajaran = () => {
         />
       </div>
 
-      {/* Modal */}
       <Modal
         isOpen={!!modal.type}
         onClose={() => { setModal({ type: null }); resetForm(); }}

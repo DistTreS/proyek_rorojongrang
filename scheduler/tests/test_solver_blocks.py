@@ -1,9 +1,9 @@
 """
-Test validasi untuk perbaikan solver:
-1. Assignment 4 JP harus terdistribusi 2+2 (blok berurutan per hari)
-2. Assignment 5 JP harus terdistribusi 3+2 (blok berurutan per hari)
-3. Assignment 6 JP harus terdistribusi 3+3 atau 2+2+2
-4. Constraint peminatan (max 4 paralel) harus berfungsi
+Test validasi untuk constraint solver (updated sesuai aturan baru):
+1. 4 JP dan 5 JP: TIDAK ada pola wajib — bebas ditempatkan di hari manapun
+2. 6 JP harus terdistribusi 3+3 atau 2+2+2 (berurutan per hari)
+3. Constraint grade track (max 4 peminatan paralel, utama vs peminatan tidak boleh bersamaan)
+4. 2 JP dan 3 JP: berurutan saat grade track NONAKTIF; hanya soft saat grade track AKTIF
 """
 import sys
 import os
@@ -13,7 +13,7 @@ from services.solver import generate_schedule
 
 
 def _make_slots(num_days: int = 5, slots_per_day: int = 9) -> list[dict]:
-    """Buat 45 time slot (5 hari × 9 slot)."""
+    """Buat time slot (n hari × m slot)."""
     slots = []
     slot_id = 1
     for day in range(1, num_days + 1):
@@ -33,11 +33,10 @@ def _make_slots(num_days: int = 5, slots_per_day: int = 9) -> list[dict]:
 
 
 def _check_blocks(schedule: list[dict], assignments_by_id: dict, slots_by_id: dict) -> dict:
-    """Cek apakah semua assignment terdistribusi dalam blok berurutan per hari."""
+    """Cek distribusi blok per assignment."""
     from collections import defaultdict
 
     results = {}
-    # Kelompokkan schedule per assignment
     by_assignment: dict[int, list[dict]] = defaultdict(list)
     for item in schedule:
         by_assignment[item["teaching_assignment_id"]].append(item)
@@ -46,7 +45,6 @@ def _check_blocks(schedule: list[dict], assignments_by_id: dict, slots_by_id: di
         assignment = assignments_by_id.get(aid, {})
         weekly_hours = assignment.get("weekly_hours", 0)
 
-        # Kelompokkan per hari
         by_day: dict[int, list[int]] = defaultdict(list)
         for item in items:
             slot = slots_by_id[item["time_slot_id"]]
@@ -72,8 +70,8 @@ def _check_blocks(schedule: list[dict], assignments_by_id: dict, slots_by_id: di
     return results
 
 
-def test_4jp_distribution():
-    """4 JP harus: 2 hari, per hari 2 slot berurutan (2+2)."""
+def test_4jp_no_pattern_constraint():
+    """4 JP: TIDAK ada pola wajib — solver bebas menempatkan di hari manapun."""
     payload = {
         "period_id": 1,
         "teaching_assignments": [
@@ -94,13 +92,14 @@ def test_4jp_distribution():
 
     a4 = blocks[1]
     assert a4["weekly_hours"] == 4
-    assert a4["days_used"] == 2, f"4 JP harus 2 hari, dapat: {a4['days_used']}"
-    assert a4["is_consecutive"], "4 JP harus berurutan per hari"
-    print(f"  [OK] 4 JP: {a4['days_used']} hari, berurutan={a4['is_consecutive']}")
+    # Tidak ada pola wajib: hanya pastikan total slot = 4
+    scheduled_count = sum(1 for item in schedule if item["teaching_assignment_id"] == 1)
+    assert scheduled_count == 4, f"4 JP harus punya 4 slot, dapat: {scheduled_count}"
+    print(f"  [OK] 4 JP: {a4['days_used']} hari (bebas, tidak ada pola wajib)")
 
 
-def test_5jp_distribution():
-    """5 JP harus: 2 hari, per hari berurutan (3+2 atau 2+3)."""
+def test_5jp_no_pattern_constraint():
+    """5 JP: TIDAK ada pola wajib — solver bebas menempatkan di hari manapun."""
     payload = {
         "period_id": 1,
         "teaching_assignments": [
@@ -112,7 +111,7 @@ def test_5jp_distribution():
     }
     result = generate_schedule(payload)
     assert not result["conflicts"], f"Conflicts: {result['conflicts']}"
-    assert result["summary"]["feasible"]
+    assert result["summary"]["feasible"], "Schedule harus feasible"
 
     schedule = result["schedule"]
     assignments_by_id = {a["id"]: a for a in payload["teaching_assignments"]}
@@ -121,13 +120,13 @@ def test_5jp_distribution():
 
     a5 = blocks[1]
     assert a5["weekly_hours"] == 5
-    assert a5["days_used"] == 2, f"5 JP harus 2 hari, dapat: {a5['days_used']}"
-    assert a5["is_consecutive"], "5 JP harus berurutan per hari"
-    print(f"  [OK] 5 JP: {a5['days_used']} hari, berurutan={a5['is_consecutive']}")
+    scheduled_count = sum(1 for item in schedule if item["teaching_assignment_id"] == 1)
+    assert scheduled_count == 5, f"5 JP harus punya 5 slot, dapat: {scheduled_count}"
+    print(f"  [OK] 5 JP: {a5['days_used']} hari (bebas, tidak ada pola wajib)")
 
 
 def test_6jp_distribution():
-    """6 JP harus: 2-3 hari, per hari berurutan (3+3 atau 2+2+2)."""
+    """6 JP harus: 2-3 hari, per hari berurutan (3+3 atau 2+2+2) — aturan tetap berlaku."""
     payload = {
         "period_id": 1,
         "teaching_assignments": [
@@ -154,7 +153,7 @@ def test_6jp_distribution():
 
 
 def test_grade_track_elective_parallel_limit():
-    """Peminatan grade yang sama max 4 paralel di 1 slot. Utama tidak boleh di slot yang sama dengan peminatan."""
+    """Grade track: utama vs peminatan tidak bersamaan, max 4 peminatan paralel."""
     payload = {
         "period_id": 1,
         "teaching_assignments": [
@@ -191,8 +190,8 @@ def test_grade_track_elective_parallel_limit():
     print(f"  [OK] grade_track: mandatory_vs_elective={mand_elec_ok}, elective_parallel={elective_ok}")
 
 
-def test_no_regression_2jp_and_3jp():
-    """2 JP dan 3 JP tetap berurutan seperti sebelumnya."""
+def test_2jp_3jp_consecutive_without_grade_track():
+    """2 JP dan 3 JP berurutan saat grade track NONAKTIF (default behaviour)."""
     payload = {
         "period_id": 1,
         "teaching_assignments": [
@@ -200,7 +199,11 @@ def test_no_regression_2jp_and_3jp():
             {"id": 2, "teacher_id": 2, "subject_id": 2, "rombel_id": 2, "period_id": 1, "weekly_hours": 3},
         ],
         "time_slots": _make_slots(),
-        "constraints": {"solver": {"max_time_seconds": 30, "workers": 4}},
+        # grade track OFF → enforce_extended_blocks=True → blok berurutan sebagai hard constraint
+        "constraints": {
+            "enforce_grade_track_constraints": False,
+            "solver": {"max_time_seconds": 30, "workers": 4},
+        },
     }
     result = generate_schedule(payload)
     assert not result["conflicts"], f"Conflicts: {result['conflicts']}"
@@ -213,20 +216,48 @@ def test_no_regression_2jp_and_3jp():
 
     a2 = blocks[1]
     a3 = blocks[2]
-    assert a2["days_used"] == 1, f"2 JP harus 1 hari, dapat: {a2['days_used']}"
+    assert a2["days_used"] == 1, f"2 JP harus 1 hari (grade track OFF), dapat: {a2['days_used']}"
     assert a2["is_consecutive"]
-    assert a3["days_used"] == 1, f"3 JP harus 1 hari, dapat: {a3['days_used']}"
+    assert a3["days_used"] == 1, f"3 JP harus 1 hari (grade track OFF), dapat: {a3['days_used']}"
     assert a3["is_consecutive"]
-    print(f"  [OK] 2 JP: {a2['days_used']} hari  |  3 JP: {a3['days_used']} hari")
+    print(f"  [OK] 2 JP: {a2['days_used']} hari  |  3 JP: {a3['days_used']} hari  (grade track OFF)")
+
+
+def test_grade_track_priority_over_consecutive():
+    """Saat grade track AKTIF, sistem harus feasible meski 2-3 JP tidak bisa berurutan."""
+    payload = {
+        "period_id": 1,
+        "teaching_assignments": [
+            # Utama grade 11 — 2 JP
+            {"id": 1, "teacher_id": 1, "subject_id": 1, "rombel_id": 10, "period_id": 1,
+             "weekly_hours": 2, "grade_level": 11, "subject_type": "wajib", "rombel_type": "utama"},
+            # Peminatan grade 11 — 3 JP
+            {"id": 2, "teacher_id": 2, "subject_id": 20, "rombel_id": 20, "period_id": 1,
+             "weekly_hours": 3, "grade_level": 11, "subject_type": "peminatan", "rombel_type": "peminatan"},
+        ],
+        "time_slots": _make_slots(num_days=5, slots_per_day=6),  # slot sedikit → grade track lebih ketat
+        "constraints": {
+            "enforce_grade_track_constraints": True,  # grade track > consecutive
+            "solver": {"max_time_seconds": 60, "workers": 4},
+        },
+    }
+    result = generate_schedule(payload)
+    # Yang penting: harus FEASIBLE (grade track terpenuhi meski 2-3 JP mungkin tidak berurutan)
+    assert result["summary"]["feasible"], "Harus feasible \u2014 grade track prioritas lebih tinggi dari blok berurutan"
+    hard = result["summary"].get("hard_constraints", {})
+    mand_elec_ok = hard.get("status", {}).get("mandatory_vs_elective_no_overlap")
+    assert mand_elec_ok is not False, "Grade track constraint harus terpenuhi"
+    print(f"  [OK] Grade track terpenuhi, feasible=True, mandatory_vs_elective={mand_elec_ok}")
 
 
 if __name__ == "__main__":
     tests = [
-        test_no_regression_2jp_and_3jp,
-        test_4jp_distribution,
-        test_5jp_distribution,
+        test_2jp_3jp_consecutive_without_grade_track,
+        test_4jp_no_pattern_constraint,
+        test_5jp_no_pattern_constraint,
         test_6jp_distribution,
         test_grade_track_elective_parallel_limit,
+        test_grade_track_priority_over_consecutive,
     ]
 
     passed = 0

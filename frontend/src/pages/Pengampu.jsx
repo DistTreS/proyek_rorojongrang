@@ -210,7 +210,6 @@ const Pengampu = () => {
         </Card>
       )}
 
-      {/* Filter */}
       <Card className="p-6">
         <div className="flex flex-col sm:flex-row gap-4">
           <Select
@@ -230,7 +229,6 @@ const Pengampu = () => {
         </div>
       </Card>
 
-      {/* Daftar Pengampu */}
       <Card className="p-6">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-semibold">Daftar Pengampu</h2>
@@ -281,7 +279,6 @@ const Pengampu = () => {
           )}
         </div>
 
-        {/* Pagination */}
         <div className="mt-8 flex justify-center">
           <Pagination
             page={pagination.page}
@@ -293,7 +290,6 @@ const Pengampu = () => {
         </div>
       </Card>
 
-      {/* Modal */}
       <Modal
         isOpen={!!modal.type}
         onClose={closeModal}

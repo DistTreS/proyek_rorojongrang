@@ -24,10 +24,10 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 FIXED_TEACHER_SUBJECT_DAILY_HOURS_LIMIT = 6
 FIXED_TEACHER_SUBJECT_DAILY_HOURS_OVERLOAD_PENALTY = 5
-FIXED_ROMBEL_DAILY_SUBJECT_LIMIT = 5
+FIXED_ROMBEL_DAILY_SUBJECT_LIMIT = 6
 FIXED_ROMBEL_DAILY_SUBJECT_OVERLOAD_PENALTY = 5
-FIXED_DISTRIBUTION_PATTERN_PENALTY = 8
-FIXED_DISTRIBUTION_NON_CONSECUTIVE_PENALTY = 10
+FIXED_DISTRIBUTION_PATTERN_PENALTY = 12
+FIXED_DISTRIBUTION_NON_CONSECUTIVE_PENALTY = 15
 FIXED_GRADE_ELECTIVE_MAX_PARALLEL_SUBJECTS = 4
 ENABLE_WAJIB_PEMINATAN_CONFLICT_CHECK = _env_bool("ENABLE_WAJIB_PEMINATAN_CONFLICT_CHECK", False)
 ENABLE_STUDENT_CONFLICT_CHECK = _env_bool("ENABLE_STUDENT_CONFLICT_CHECK", False)
@@ -116,22 +116,22 @@ def _build_config(constraints: dict[str, Any]) -> dict[str, Any]:
     )
 
     prefer_weight = _safe_int(
-        objective_cfg.get("prefer", constraints.get("prefer_weight", 8)),
-        default=8,
+        objective_cfg.get("prefer", constraints.get("prefer_weight", 15)),
+        default=15,
         min_value=0,
         max_value=100,
     )
     avoid_penalty = abs(
         _safe_int(
-            objective_cfg.get("avoid", constraints.get("avoid_penalty", 10)),
-            default=10,
+            objective_cfg.get("avoid", constraints.get("avoid_penalty", 25)),
+            default=25,
             min_value=-100,
             max_value=100,
         )
     )
     day_spread_weight = _safe_int(
-        objective_cfg.get("day_spread", constraints.get("day_spread_weight", 2)),
-        default=2,
+        objective_cfg.get("day_spread", constraints.get("day_spread_weight", 0)),
+        default=0,
         min_value=0,
         max_value=100,
     )
@@ -163,8 +163,10 @@ def _build_config(constraints: dict[str, Any]) -> dict[str, Any]:
             min_value=30.0,
             max_value=600.0,
         ),
-        # Hard constraint baseline: maksimal 8 jam/hari per guru.
-        "max_teacher_daily_hours": 8,
+        # Hard constraint per guru per hari DIHAPUS (diganti: hanya soft per guru-mapel ≤6 JP).
+        # Guru beda mata pelajaran boleh mengajar lebih dari 8 jam/hari.
+        # No-conflict constraint sudah memastikan tidak ada bentrok waktu fisik.
+        "max_teacher_daily_hours": 0,
         # Hard constraint baseline: weekly_hours 2/3 harus berurutan pada hari yang sama.
         "enforce_consecutive_small_assignments": True,
         # Perluasan blok berurutan ke 4-6 JP.
@@ -179,6 +181,32 @@ def _build_config(constraints: dict[str, Any]) -> dict[str, Any]:
         "ga_enabled": bool(ENABLE_HYBRID_GA and requested_ga_enabled),
         # Aturan blok angkatan wajib-vs-peminatan dikendalikan payload request.
         "enforce_grade_track_constraints": bool(requested_grade_track_constraints),
+        # Slot utama tidak boleh kosong kecuali ada peminatan pada tingkat yang sama.
+        # Default: aktif otomatis jika enforce_grade_track_constraints aktif.
+        "enforce_utama_slot_coverage": _safe_bool(
+            constraints.get("enforce_utama_slot_coverage"),
+            bool(requested_grade_track_constraints),
+        ),
+        # Jumlah optimal peminatan paralel per slot (preferred, bukan batas keras).
+        # Jika aktual > preferred → kena soft penalty (mendorong klasterisasi 3 bukan 4).
+        "preferred_parallel_elective_subjects": _safe_int(
+            constraints.get("preferred_parallel_elective_subjects"),
+            default=3,
+            min_value=1,
+        ),
+        # Penalti per kelas peminatan di atas preferred_parallel per slot.
+        "elective_excess_soft_penalty": _safe_int(
+            constraints.get("elective_excess_soft_penalty"),
+            default=5,
+            min_value=0,
+        ),
+        # Penalti per gap (jeda antar blok) dalam satu hari untuk kelas peminatan.
+        # Nilai tinggi mendorong CP-SAT menempatkan jp peminatan berurutan tanpa jeda.
+        "elective_block_gap_penalty": _safe_int(
+            constraints.get("elective_block_gap_penalty"),
+            default=20,
+            min_value=0,
+        ),
         "ga_population": _safe_int(
             ga_cfg.get("population_size", constraints.get("ga_population_size", 16)),
             default=16,
@@ -801,9 +829,7 @@ def _allowed_distribution_patterns(weekly_hours: int) -> list[tuple[int, ...]]:
         1: [(1,)],
         2: [(2,)],
         3: [(3,)],
-        4: [(2, 2)],
-        5: [(3, 2)],
-        6: [(3, 3), (2, 2, 2)],
+        # 4, 5, 6 JP: tidak ada pola wajib — bebas ditempatkan di hari manapun.
     }
     return pattern_map.get(weekly_hours, [])
 
@@ -1059,10 +1085,14 @@ def _count_grade_elective_parallel_subject_overlaps(
     slots_by_id: dict[int, dict[str, Any]],
     max_parallel_subjects: int,
 ) -> int:
+    """Menghitung total slot yang memiliki lebih dari max_parallel_subjects
+    assignment peminatan (bukan distinct subject) di grade yang sama.
+    """
     if max_parallel_subjects <= 0:
         return 0
 
-    grade_slot_subjects: dict[tuple[int, int], set[int]] = defaultdict(set)
+    # Hitung TOTAL assignment peminatan per (grade, slot), bukan distinct subjects.
+    grade_slot_count: dict[tuple[int, int], int] = defaultdict(int)
     for assignment in assignments:
         assignment_id = assignment["id"]
         grade_level = _safe_int(assignment.get("grade_level"), default=0, min_value=0)
@@ -1071,15 +1101,14 @@ def _count_grade_elective_parallel_subject_overlaps(
         track = _resolve_assignment_track(assignment)
         if track != "elective":
             continue
-        subject_id = assignment["subject_id"]
         for slot_id in schedule_map.get(assignment_id, tuple()):
             if slot_id not in slots_by_id:
                 continue
-            grade_slot_subjects[(grade_level, slot_id)].add(subject_id)
+            grade_slot_count[(grade_level, slot_id)] += 1
 
     overlap_units = 0
-    for subjects in grade_slot_subjects.values():
-        overload = len(subjects) - max_parallel_subjects
+    for count in grade_slot_count.values():
+        overload = count - max_parallel_subjects
         if overload > 0:
             overlap_units += overload
     return overlap_units
@@ -1421,11 +1450,20 @@ def _evaluate_schedule(
     distribution_pattern_penalty: int,
     distribution_non_consecutive_penalty: int,
     max_parallel_elective_subjects: int,
+    # Parameter tambahan agar GA mengevaluasi constraint peminatan
+    sorted_slot_ids_weekly: list[int] | None = None,
+    elective_block_gap_penalty: int = 0,
+    preferred_parallel_elective_subjects: int = 0,
+    elective_excess_soft_penalty: int = 0,
 ) -> tuple[int, bool]:
     teacher_busy: set[tuple[int, int]] = set()
     rombel_busy: set[tuple[int, int]] = set()
     student_busy: set[tuple[int, int]] = set()
     grade_slot_track: dict[tuple[int, int], set[str]] = defaultdict(set)
+    # Untuk H9 Utama Slot Coverage
+    grade_elective_slot_set: dict[int, set[int]] = defaultdict(set)   # grade → set(slot_ids)
+    grade_mandatory_rombel_slot: dict[tuple[int, int], set[int]] = defaultdict(set)  # (grade, rombel_id) → set(slot_ids)
+    grade_mandatory_rombel_total_jp: dict[tuple[int, int], int] = defaultdict(int)   # (grade, rombel_id) → total JP
     score = 0
 
     for assignment in assignments:
@@ -1475,11 +1513,42 @@ def _evaluate_schedule(
                 if track == "elective" and "mandatory" in state:
                     return -1_000_000_000, False
                 state.add(track)
+                # Kumpulkan data untuk H9 check
+                if track == "elective":
+                    grade_elective_slot_set[grade_level].add(slot_id)
+                elif track == "mandatory":
+                    gr_rombel_key = (grade_level, rombel_id)
+                    grade_mandatory_rombel_slot[gr_rombel_key].add(slot_id)
+                    grade_mandatory_rombel_total_jp[gr_rombel_key] += 1
 
             score += preference_score_map.get((teacher_id, slot_id), 0)
             used_days.add(day_of_week)
 
         score += day_spread_weight * len(used_days)
+
+    # ===== H9: Utama Slot Coverage Check =====
+    # Jika tidak ada peminatan di grade G slot S, setiap rombel utama grade G WAJIB ada JP di slot S.
+    # Cek hanya grade yang MEMILIKI peminatan (grade yang tidak punya peminatan → lewati).
+    for grade_level, elective_slots in grade_elective_slot_set.items():
+        # Cari semua slot yang ada di schedule (dari slots_by_id) tapi TIDAK ada peminatan
+        all_known_slots = set(slots_by_id.keys())
+        mandatory_slots = all_known_slots - elective_slots  # slot tanpa peminatan di grade ini
+        # Untuk setiap rombel utama grade ini: harus ada JP di setiap mandatory_slot
+        rombel_ids_in_grade = {
+            rombel_id
+            for (g, rombel_id) in grade_mandatory_rombel_slot
+            if g == grade_level
+        }
+        for rombel_id in rombel_ids_in_grade:
+            gr_rombel_key = (grade_level, rombel_id)
+            total_jp = grade_mandatory_rombel_total_jp[gr_rombel_key]
+            # Feasibility guard: jika JP rombel < jumlah slot yang-dicakup, skip (sama dgn CP-SAT)
+            if total_jp < len(mandatory_slots):
+                continue
+            covered = grade_mandatory_rombel_slot[gr_rombel_key]
+            for slot_id in mandatory_slots:
+                if slot_id not in covered:
+                    return -1_000_000_000, False  # Jam kosong terdeteksi!
 
     elective_parallel_overlap_violations = _count_grade_elective_parallel_subject_overlaps(
         schedule_map=schedule_map,
@@ -1503,6 +1572,87 @@ def _evaluate_schedule(
         distribution_non_consecutive_penalty=distribution_non_consecutive_penalty,
     )
     score -= soft_penalty_breakdown["total_penalty"]
+
+    # ---- Elective-aware scoring (agar GA mengevaluasi constraint peminatan) ----
+
+    # 1. Elective tiered pair scoring per day (mirrors CP-SAT objective)
+    if elective_block_gap_penalty > 0 and sorted_slot_ids_weekly:
+        ps1 = elective_block_gap_penalty // 4    # +5: pairs >= 1
+        ps2 = elective_block_gap_penalty // 4    # +5: pairs >= 2
+        ps3 = -5 * (elective_block_gap_penalty // 4)  # -25: pairs >= 3
+        spen = elective_block_gap_penalty // 4   # 5: no-pair day penalty
+        for assignment in assignments:
+            assignment_id = assignment["id"]
+            track = assignment_track_map.get(assignment_id)
+            if track != "elective":
+                continue
+            weekly_hours_a = _safe_int(assignment.get("weekly_hours"), default=0, min_value=0)
+            if weekly_hours_a < 2:
+                continue
+            slot_ids_a = schedule_map.get(assignment_id, tuple())
+            if len(slot_ids_a) < 2:
+                continue
+
+            slot_id_set_a = set(slot_ids_a)
+
+            # Count active slots per day and consecutive pairs per day
+            by_day_total: dict[int, int] = defaultdict(int)
+            by_day_pairs: dict[int, int] = defaultdict(int)
+            for sid in slot_ids_a:
+                by_day_total[_safe_int(slots_by_id[sid].get("day_of_week"), default=0)] += 1
+
+            for wk_i, wk_sid in enumerate(sorted_slot_ids_weekly):
+                if wk_sid not in slot_id_set_a:
+                    continue
+                if wk_i > 0:
+                    prv = sorted_slot_ids_weekly[wk_i - 1]
+                    prv_day = _safe_int(slots_by_id[prv].get("day_of_week"), default=-1)
+                    cur_day = _safe_int(slots_by_id[wk_sid].get("day_of_week"), default=0)
+                    if prv_day == cur_day and prv in slot_id_set_a:
+                        by_day_pairs[cur_day] += 1
+
+            for day, total_slots in by_day_total.items():
+                pairs = by_day_pairs.get(day, 0)
+                # Threshold scoring
+                if pairs >= 1:
+                    score += ps1   # +5
+                if pairs >= 2:
+                    score += ps2   # +5 (cumulative: +10 for 3-block)
+                if pairs >= 3:
+                    score += ps3   # -25 (cumulative: -15 for 4-block or 5-block)
+                # No-pair penalty: day active but 0 consecutive pairs
+                if pairs == 0:
+                    score -= spen  # -5
+                # Within-day gap penalty
+                if total_slots >= 2:
+                    extra_gaps = max(0, total_slots - 1 - pairs)
+                    score -= elective_block_gap_penalty * extra_gaps
+
+            # Days-over penalty: penalti jika tersebar ke > 2 hari
+            # Contoh: 2+2+1 (3 hari) → +5 - 15 = -10
+            if weekly_hours_a > 2:
+                days_over_target = elective_block_gap_penalty * 3 // 4  # 15
+                n_active_days = len(by_day_total)
+                days_over = max(0, n_active_days - 2)
+                score -= days_over_target * days_over
+
+
+    # 2. Peminatan parallel excess soft penalty (preferred < max hard)
+    if elective_excess_soft_penalty > 0 and preferred_parallel_elective_subjects > 0:
+        grade_slot_count: dict[tuple[int, int], int] = defaultdict(int)
+        for assignment in assignments:
+            assignment_id = assignment["id"]
+            grade_level = assignment_grade_map.get(assignment_id, 0)
+            if grade_level <= 0:
+                continue
+            if assignment_track_map.get(assignment_id) != "elective":
+                continue
+            for sid in schedule_map.get(assignment_id, tuple()):
+                grade_slot_count[(grade_level, sid)] += 1
+        for cnt in grade_slot_count.values():
+            excess = cnt - preferred_parallel_elective_subjects
+            if excess > 0:
+                score -= elective_excess_soft_penalty * excess
 
     return score, True
 
@@ -1670,8 +1820,8 @@ def _solve_cp_sat(
             if weekly_hours < 2:
                 continue
             if weekly_hours > 3 and not enforce_extended_blocks:
-                # Grade track aktif: lewati 4-6 JP dari hard constraint;
-                # repair phase dengan penalty tinggi akan menangani distribusinya.
+                # Grade track aktif: 4-6 JP dijadikan soft constraint via penalty + repair.
+                # 2-3 JP tetap hard constraint karena tidak menyebabkan konflik dengan grade track.
                 continue
             _add_block_distribution_constraints(
                 model=model,
@@ -1680,6 +1830,10 @@ def _solve_cp_sat(
                 slots_by_day=slots_by_day,
                 x=x,
             )
+
+    # grade_slot_elective_active_map: menyimpan elective_active variable per grade per slot
+    # untuk digunakan kembali pada constraint utama slot coverage di bawah.
+    grade_slot_elective_active_map: dict[int, dict[int, cp_model.IntVar]] = defaultdict(dict)
 
     for grade_level, bucket in grade_track_map.items():
         mandatory_ids = bucket.get("mandatory", tuple())
@@ -1714,25 +1868,66 @@ def _solve_cp_sat(
 
                 model.Add(mandatory_active + elective_active <= 1)
 
-            if elective_subject_groups:
-                subject_active_vars: list[cp_model.IntVar] = []
-                for subject_id, subject_assignment_ids in elective_subject_groups.items():
-                    if not subject_assignment_ids:
-                        continue
-                    subject_active = model.NewBoolVar(
-                        f"grade_{grade_level}_slot_{slot_id}_subject_{subject_id}_active"
-                    )
-                    subject_sum = sum(
-                        x[(assignment_id, slot_id)]
-                        for assignment_id in subject_assignment_ids
-                    )
-                    for assignment_id in subject_assignment_ids:
-                        model.Add(x[(assignment_id, slot_id)] <= subject_active)
-                    model.Add(subject_active <= subject_sum)
-                    subject_active_vars.append(subject_active)
+                # Simpan elective_active untuk digunakan di utama slot coverage.
+                grade_slot_elective_active_map[grade_level][slot_id] = elective_active
 
-                if len(subject_active_vars) > max_parallel_elective_subjects:
-                    model.Add(sum(subject_active_vars) <= max_parallel_elective_subjects)
+            # Batasi TOTAL assignment peminatan per slot (bukan distinct subject).
+            # Sebelumnya menggunakan distinct subject_id — ini tidak akurat jika
+            # ada 2 rombel peminatan yang mapelnya sama (misal Biologi TKL + Biologi MP2).
+            if elective_ids and max_parallel_elective_subjects > 0:
+                elective_total = sum(x[(aid, slot_id)] for aid in elective_ids)
+                if len(elective_ids) > max_parallel_elective_subjects:
+                    model.Add(elective_total <= max_parallel_elective_subjects)
+
+    # ======= UTAMA SLOT COVERAGE CONSTRAINT ==============================
+    # Aturan: jika tidak ada kelas peminatan pada grade X di slot S,
+    # maka SETIAP rombel utama grade X harus memiliki mata pelajaran di slot S.
+    # Ini menghilangkan "jam kosong" pada kelas utama di luar waktu peminatan.
+    #
+    # Logika:
+    #   rombel_occupied[R][S] + elective_active[X][S] >= 1
+    #   → Ketika elective_active = 0 (tidak ada peminatan): rombel_occupied harus 1
+    #   → Ketika elective_active = 1 (ada peminatan)    : trivially satisfied (rombel wajib kosong anyway)
+    # ======================================================================
+    enforce_utama_slot_coverage = _safe_bool(
+        config.get("enforce_utama_slot_coverage"),
+        False,
+    )
+    if enforce_utama_slot_coverage and grade_slot_elective_active_map:
+        # Kumpulkan assignment utama per rombel per grade.
+        mandatory_by_rombel_per_grade: dict[int, dict[int, list[int]]] = defaultdict(lambda: defaultdict(list))
+        for grade_level, bucket in grade_track_map.items():
+            for aid in bucket.get("mandatory", tuple()):
+                a_obj = assignments_by_id.get(aid)
+                if not a_obj:
+                    continue
+                rombel_id = _safe_int(a_obj.get("rombel_id"), default=0, min_value=0)
+                if rombel_id > 0:
+                    mandatory_by_rombel_per_grade[grade_level][rombel_id].append(aid)
+
+        for grade_level, rombel_map in mandatory_by_rombel_per_grade.items():
+            elective_active_by_slot = grade_slot_elective_active_map.get(grade_level, {})
+            if not elective_active_by_slot:
+                continue  # grade ini tidak punya peminatan, lewati
+
+            total_slots = len(elective_active_by_slot)
+
+            for rombel_id, rombel_aid_list in rombel_map.items():
+                # Guard feasibility: total JP rombel harus >= jumlah slot yang dikelola constraint ini.
+                # Jika kurang, constraint ini tidak mungkin dipenuhi → lewati rombel ini.
+                total_rombel_jp = sum(
+                    _safe_int(assignments_by_id.get(aid, {}).get("weekly_hours"), default=0, min_value=0)
+                    for aid in rombel_aid_list
+                )
+                if total_rombel_jp < total_slots:
+                    # JP rombel tidak cukup untuk mengisi semua slot coverage → skip.
+                    continue
+
+                for slot_id, elective_active in elective_active_by_slot.items():
+                    rombel_sum = sum(x[(aid, slot_id)] for aid in rombel_aid_list)
+                    # rombel_sum + elective_active >= 1:
+                    # Ketika tidak ada peminatan (elective_active=0) → rombel harus terisi
+                    model.Add(rombel_sum + elective_active >= 1)
 
     objective_terms: list[Any] = []
     for assignment in assignments:
@@ -1968,6 +2163,151 @@ def _solve_cp_sat(
                 objective_terms.append(-distribution_pattern_penalty * day_count_under)
                 objective_terms.append(-distribution_pattern_penalty * day_count_over)
 
+    # ======= ELECTIVE SPLIT & WITHIN-DAY CONSECUTIVE PENALTY ================
+    # Aturan baru:
+    #   ≤ 2 JP → cukup 1 hari (jika nyasar ke 2 hari = penalti)
+    #   > 2 JP → ideal 2 hari terpisah (beda hari DIANJURKAN untuk variasi)
+    #           setiap hari sebaiknya memiliki blok berurutan (tanpa gap).
+    #
+    # Contoh 4 JP:
+    #   Mon jp3+jp4 + Wed jp1+jp2  → 2 hari, masing-masing berurutan ✓  (ideal)
+    #   Mon jp3+jp4+jp5+jp6        → 1 hari, berurutan, TAPI terlalu padat ✗
+    #   Mon jp3+jp5 + Tue jp1+jp2  → 2 hari, tapi Mon ada gap (jp3 dan jp5) ✗
+    # ======================================================================
+    elective_block_gap_penalty = _safe_int(
+        config.get("elective_block_gap_penalty"), default=20, min_value=0
+    )
+    if elective_block_gap_penalty > 0 and enforce_grade_track_constraints:
+        for assignment in assignments:
+            assignment_id = assignment["id"]
+            track = _resolve_assignment_track(assignment)
+            if track != "elective":
+                continue
+            weekly_hours = _safe_int(assignment.get("weekly_hours"), default=0, min_value=0)
+            if weekly_hours < 2:
+                continue
+
+            # --- Scoring Peminatan Per Hari (Tiered Threshold) ---
+            # Scoring pola blok konsekutif pada SATU hari:
+            #   pairs >= 1 (+5): ada minimal 1 pasang berurutan  → blok >= 2
+            #   pairs >= 2 (+5): ada minimal 2 pasang berurutan  → blok >= 3
+            #   pairs >= 3 (-25): ada minimal 3 pasang berurutan → blok >= 4 (TERLALU PADAT)
+            #   0 pairs tapi hari aktif (-5): slot terisolasi
+            # Hasil per pola (5 JP):
+            #   3+2  → (+10)+( +5)          = +15  ← ideal
+            #   2+2+1→ ( +5)+( +5)+(  -5)   = +5
+            #   5+0  → (+5+5-25)             = -15
+            #   4+1  → (+5+5-25)+(    -5)   = -20
+            # Day-count tidak diperhitungkan → scoring organik sudah cukup.
+            ps1 = elective_block_gap_penalty // 4   # +5
+            ps2 = elective_block_gap_penalty // 4   # +5
+            ps3 = -5 * (elective_block_gap_penalty // 4)  # -25
+            spen = elective_block_gap_penalty // 4  # -5
+
+            for day, day_slot_ids in slots_by_day.items():
+                if not day_slot_ids:
+                    continue
+                day_count_var = model.NewIntVar(
+                    0, len(day_slot_ids), f"elec_dc_a{assignment_id}_d{day}"
+                )
+                model.Add(day_count_var == sum(x[(assignment_id, sid)] for sid in day_slot_ids))
+
+                # Build consecutive pair BoolVars
+                pair_active_vars: list[cp_model.IntVar] = []
+                for idx in range(len(day_slot_ids) - 1):
+                    sid1 = day_slot_ids[idx]
+                    sid2 = day_slot_ids[idx + 1]
+                    pv = model.NewBoolVar(f"elec_pv_a{assignment_id}_d{day}_i{idx}")
+                    model.Add(pv <= x[(assignment_id, sid1)])
+                    model.Add(pv <= x[(assignment_id, sid2)])
+                    model.Add(pv >= x[(assignment_id, sid1)] + x[(assignment_id, sid2)] - 1)
+                    pair_active_vars.append(pv)
+
+                # pairs_count_d
+                n_max_pairs = len(pair_active_vars)
+                pairs_count_d = model.NewIntVar(0, max(n_max_pairs, 1), f"elec_pc_a{assignment_id}_d{day}")
+                if pair_active_vars:
+                    model.Add(pairs_count_d == sum(pair_active_vars))
+                else:
+                    model.Add(pairs_count_d == 0)
+
+                # Threshold pair indicators: pairs >= k
+                for k, score_k in [(1, ps1), (2, ps2), (3, ps3)]:
+                    if k > n_max_pairs:
+                        break
+                    pk = model.NewBoolVar(f"elec_pk_a{assignment_id}_d{day}_k{k}")
+                    model.Add(pairs_count_d >= k).OnlyEnforceIf(pk)
+                    model.Add(pairs_count_d <= k - 1).OnlyEnforceIf(pk.Not())
+                    objective_terms.append(score_k * pk)
+
+                # No-pair active day penalty (singleton or non-consecutive → -5)
+                is_day_active = model.NewBoolVar(f"elec_da1_a{assignment_id}_d{day}")
+                model.Add(day_count_var >= 1).OnlyEnforceIf(is_day_active)
+                model.Add(day_count_var == 0).OnlyEnforceIf(is_day_active.Not())
+                if pair_active_vars:
+                    has_pair = model.NewBoolVar(f"elec_hp_a{assignment_id}_d{day}")
+                    model.AddBoolOr(pair_active_vars).OnlyEnforceIf(has_pair)
+                    model.AddBoolAnd([pv.Not() for pv in pair_active_vars]).OnlyEnforceIf(has_pair.Not())
+                    npa = model.NewBoolVar(f"elec_npa_a{assignment_id}_d{day}")
+                    model.Add(npa <= is_day_active)
+                    model.Add(npa <= 1 - has_pair)
+                    model.Add(npa >= is_day_active - has_pair)
+                    objective_terms.append(-spen * npa)
+                else:
+                    objective_terms.append(-spen * is_day_active)
+
+                # Within-day gap penalty
+                if pair_active_vars and elective_block_gap_penalty > 0:
+                    extra_gaps = model.NewIntVar(0, len(day_slot_ids), f"elec_eg_a{assignment_id}_d{day}")
+                    model.Add(extra_gaps >= day_count_var - 1 - pairs_count_d)
+                    model.Add(extra_gaps >= 0)
+                    objective_terms.append(-elective_block_gap_penalty * extra_gaps)
+
+            # Days-over penalty: penalti jika peminatan tersebar ke > 2 hari
+            # (tidak berlaku jika terlalu sedikit hari — 1 hari sudah ditangani oleh scoring blok)
+            # Contoh: 2+2+1 = 3 hari → +5 - 15 = -10
+            days_over_target_penalty = elective_block_gap_penalty * 3 // 4  # default 15
+            target_days_dop = 2  # hanya untuk peminatan > 2 JP
+            if days_over_target_penalty > 0 and weekly_hours > 2:
+                day_active_dop: list[cp_model.IntVar] = []
+                for day, day_slot_ids in slots_by_day.items():
+                    da_dop = model.NewBoolVar(f"elec_dadop_a{assignment_id}_d{day}")
+                    dsum_dop = sum(x[(assignment_id, sid)] for sid in day_slot_ids)
+                    model.Add(dsum_dop >= 1).OnlyEnforceIf(da_dop)
+                    model.Add(dsum_dop == 0).OnlyEnforceIf(da_dop.Not())
+                    day_active_dop.append(da_dop)
+                n_days_dop = model.NewIntVar(0, len(day_active_dop), f"elec_ndop_a{assignment_id}")
+                model.Add(n_days_dop == sum(day_active_dop))
+                dop = model.NewIntVar(0, len(day_active_dop), f"elec_dop_a{assignment_id}")
+                model.Add(dop >= n_days_dop - target_days_dop)
+                model.Add(dop >= 0)
+                objective_terms.append(-days_over_target_penalty * dop)
+
+    # Soft preference: dorong klasterisasi peminatan di ≤ preferred_parallel per slot.
+    # Penalti per assignment peminatan melebihi preferred (membuat 3 lebih baik dari 4).
+    preferred_parallel_elective = _safe_int(
+        config.get("preferred_parallel_elective_subjects"), default=3, min_value=1
+    )
+    elective_excess_penalty = _safe_int(
+        config.get("elective_excess_soft_penalty"), default=5, min_value=0
+    )
+    if elective_excess_penalty > 0 and enforce_grade_track_constraints:
+        for grade_level, bucket in grade_track_map.items():
+            elective_ids_grade = bucket.get("elective", tuple())
+            if len(elective_ids_grade) <= preferred_parallel_elective:
+                continue  # tidak mungkin melebihi preferred → lewati
+            for slot_id in slot_ids:
+                elective_count_expr = sum(x[(aid, slot_id)] for aid in elective_ids_grade)
+                max_excess = len(elective_ids_grade) - preferred_parallel_elective
+                excess = model.NewIntVar(
+                    0,
+                    max_excess,
+                    f"elective_excess_g{grade_level}_s{slot_id}",
+                )
+                model.Add(excess >= elective_count_expr - preferred_parallel_elective)
+                model.Add(excess >= 0)
+                objective_terms.append(-elective_excess_penalty * excess)
+
     if objective_terms:
         model.Maximize(sum(objective_terms))
     else:
@@ -2181,6 +2521,10 @@ def _mutate_schedule(
     distribution_non_consecutive_penalty: int,
     max_parallel_elective_subjects: int,
     rng: random.Random,
+    sorted_slot_ids_weekly: list[int] | None = None,
+    elective_block_gap_penalty: int = 0,
+    preferred_parallel_elective_subjects: int = 0,
+    elective_excess_soft_penalty: int = 0,
 ) -> dict[int, tuple[int, ...]]:
     base = _clone_schedule_map(schedule_map)
     best_score, base_feasible = _evaluate_schedule(
@@ -2200,6 +2544,10 @@ def _mutate_schedule(
         distribution_pattern_penalty,
         distribution_non_consecutive_penalty,
         max_parallel_elective_subjects,
+        sorted_slot_ids_weekly=sorted_slot_ids_weekly,
+        elective_block_gap_penalty=elective_block_gap_penalty,
+        preferred_parallel_elective_subjects=preferred_parallel_elective_subjects,
+        elective_excess_soft_penalty=elective_excess_soft_penalty,
     )
     if not base_feasible:
         best_score = -1_000_000_000
@@ -2250,6 +2598,10 @@ def _mutate_schedule(
                     distribution_pattern_penalty,
                     distribution_non_consecutive_penalty,
                     max_parallel_elective_subjects,
+                    sorted_slot_ids_weekly=sorted_slot_ids_weekly,
+                    elective_block_gap_penalty=elective_block_gap_penalty,
+                    preferred_parallel_elective_subjects=preferred_parallel_elective_subjects,
+                    elective_excess_soft_penalty=elective_excess_soft_penalty,
                 )
                 if feasible and trial_score > best_score:
                     best_score = trial_score
@@ -2290,6 +2642,10 @@ def _mutate_schedule(
                 distribution_pattern_penalty,
                 distribution_non_consecutive_penalty,
                 max_parallel_elective_subjects,
+                sorted_slot_ids_weekly=sorted_slot_ids_weekly,
+                elective_block_gap_penalty=elective_block_gap_penalty,
+                preferred_parallel_elective_subjects=preferred_parallel_elective_subjects,
+                elective_excess_soft_penalty=elective_excess_soft_penalty,
             )
             if feasible and trial_score > best_score:
                 best_score = trial_score
@@ -2317,6 +2673,10 @@ def _crossover_schedules(
     distribution_non_consecutive_penalty: int,
     max_parallel_elective_subjects: int,
     rng: random.Random,
+    sorted_slot_ids_weekly: list[int] | None = None,
+    elective_block_gap_penalty: int = 0,
+    preferred_parallel_elective_subjects: int = 0,
+    elective_excess_soft_penalty: int = 0,
 ) -> dict[int, tuple[int, ...]]:
     child = _clone_schedule_map(parent_a)
     assignment_ids = [assignment["id"] for assignment in assignments]
@@ -2345,6 +2705,10 @@ def _crossover_schedules(
             distribution_pattern_penalty,
             distribution_non_consecutive_penalty,
             max_parallel_elective_subjects,
+            sorted_slot_ids_weekly=sorted_slot_ids_weekly,
+            elective_block_gap_penalty=elective_block_gap_penalty,
+            preferred_parallel_elective_subjects=preferred_parallel_elective_subjects,
+            elective_excess_soft_penalty=elective_excess_soft_penalty,
         )
         if feasible:
             child = trial
@@ -2590,6 +2954,10 @@ def _run_ga_refinement(
     distribution_non_consecutive_penalty: int,
     max_parallel_elective_subjects: int,
     config: dict[str, Any],
+    # Elective-aware params agar GA mengevaluasi constraint peminatan
+    elective_block_gap_penalty: int = 0,
+    preferred_parallel_elective_subjects: int = 0,
+    elective_excess_soft_penalty: int = 0,
 ) -> tuple[dict[int, tuple[int, ...]], int, list[dict[str, Any]]]:
     warnings: list[dict[str, Any]] = []
 
@@ -2606,6 +2974,15 @@ def _run_ga_refinement(
     rng = random.Random(config["random_seed"] + 97)
     assignments_by_id = {assignment["id"]: assignment for assignment in assignments}
     day_spread_weight = config["objective"]["day_spread_weight"]
+
+    # Urutkan slot secara global (weekly) sekali untuk scoring elective gap di GA
+    sorted_slot_ids_weekly: list[int] = sorted(
+        slot_ids,
+        key=lambda sid: (
+            _safe_int(slots_by_id[sid].get("day_of_week"), default=0),
+            _safe_int(slots_by_id[sid].get("start_seconds"), default=0),
+        ),
+    )
     base_penalty_breakdown = _calculate_soft_penalty_breakdown(
         schedule_map=base_schedule,
         assignments=assignments,
@@ -2660,6 +3037,10 @@ def _run_ga_refinement(
                 distribution_non_consecutive_penalty=distribution_non_consecutive_penalty,
                 max_parallel_elective_subjects=max_parallel_elective_subjects,
                 rng=rng,
+                sorted_slot_ids_weekly=sorted_slot_ids_weekly,
+                elective_block_gap_penalty=elective_block_gap_penalty,
+                preferred_parallel_elective_subjects=preferred_parallel_elective_subjects,
+                elective_excess_soft_penalty=elective_excess_soft_penalty,
             )
         population.append(candidate)
 
@@ -2686,6 +3067,10 @@ def _run_ga_refinement(
                 distribution_pattern_penalty,
                 distribution_non_consecutive_penalty,
                 max_parallel_elective_subjects,
+                sorted_slot_ids_weekly=sorted_slot_ids_weekly,
+                elective_block_gap_penalty=elective_block_gap_penalty,
+                preferred_parallel_elective_subjects=preferred_parallel_elective_subjects,
+                elective_excess_soft_penalty=elective_excess_soft_penalty,
             )
             if feasible:
                 penalty_breakdown = _calculate_soft_penalty_breakdown(
@@ -2753,6 +3138,10 @@ def _run_ga_refinement(
                     distribution_non_consecutive_penalty=distribution_non_consecutive_penalty,
                     max_parallel_elective_subjects=max_parallel_elective_subjects,
                     rng=rng,
+                    sorted_slot_ids_weekly=sorted_slot_ids_weekly,
+                    elective_block_gap_penalty=elective_block_gap_penalty,
+                    preferred_parallel_elective_subjects=preferred_parallel_elective_subjects,
+                    elective_excess_soft_penalty=elective_excess_soft_penalty,
                 )
             if rng.random() < config["ga_mutation_rate"]:
                 child = _mutate_schedule(
@@ -2776,6 +3165,10 @@ def _run_ga_refinement(
                     distribution_non_consecutive_penalty=distribution_non_consecutive_penalty,
                     max_parallel_elective_subjects=max_parallel_elective_subjects,
                     rng=rng,
+                    sorted_slot_ids_weekly=sorted_slot_ids_weekly,
+                    elective_block_gap_penalty=elective_block_gap_penalty,
+                    preferred_parallel_elective_subjects=preferred_parallel_elective_subjects,
+                    elective_excess_soft_penalty=elective_excess_soft_penalty,
                 )
 
             next_population.append(child)
@@ -3108,6 +3501,15 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                         distribution_non_consecutive_penalty=distribution_non_consecutive_penalty,
                         max_parallel_elective_subjects=max_parallel_elective_subjects,
                         config=config,
+                        elective_block_gap_penalty=_safe_int(
+                            config.get("elective_block_gap_penalty"), default=20, min_value=0
+                        ),
+                        preferred_parallel_elective_subjects=_safe_int(
+                            config.get("preferred_parallel_elective_subjects"), default=3, min_value=1
+                        ),
+                        elective_excess_soft_penalty=_safe_int(
+                            config.get("elective_excess_soft_penalty"), default=5, min_value=0
+                        ),
                     )
                     ga_round_runtime = int(round((time.perf_counter() - ga_started_at) * 1000))
                     ga_runtime_ms += ga_round_runtime
@@ -3130,6 +3532,15 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                         distribution_pattern_penalty=distribution_pattern_penalty,
                         distribution_non_consecutive_penalty=distribution_non_consecutive_penalty,
                         max_parallel_elective_subjects=max_parallel_elective_subjects,
+                        elective_block_gap_penalty=_safe_int(
+                            config.get("elective_block_gap_penalty"), default=20, min_value=0
+                        ),
+                        preferred_parallel_elective_subjects=_safe_int(
+                            config.get("preferred_parallel_elective_subjects"), default=3, min_value=1
+                        ),
+                        elective_excess_soft_penalty=_safe_int(
+                            config.get("elective_excess_soft_penalty"), default=5, min_value=0
+                        ),
                     )
 
                     if not ga_feasible:

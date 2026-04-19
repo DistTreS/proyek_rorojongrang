@@ -12,7 +12,22 @@
     "db:migrate": "sequelize-cli db:migrate",
     "db:migrate:undo": "sequelize-cli db:migrate:undo",
     "db:seed": "sequelize-cli db:seed:all",
-    "db:seed:undo": "sequelize-cli db:seed:undo:all"
+    "db:seed:undo": "sequelize-cli db:seed:undo:all",
+    "test": "jest --testPathPatterns=tests/unit_test --runInBand",
+    "test:watch": "jest --testPathPatterns=tests/unit_test --runInBand --watch",
+    "test:coverage": "jest --testPathPatterns=tests/unit_test --runInBand --coverage"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["**/tests/unit_test/**/*.test.js"],
+    "collectCoverageFrom": [
+      "controllers/**/*.js",
+      "models/**/*.js",
+      "utils/**/*.js",
+      "!models/index.js"
+    ],
+    "coverageDirectory": "coverage",
+    "coverageReporters": ["text", "lcov"]
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -31,6 +46,7 @@
   },
   "devDependencies": {
     "eslint": "^8.57.0",
+    "jest": "^29.7.0",
     "nodemon": "^3.0.2",
     "sequelize-cli": "^6.6.2"
   }

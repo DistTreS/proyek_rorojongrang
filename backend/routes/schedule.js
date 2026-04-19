@@ -14,7 +14,8 @@ const {
   exportSchedule,
   submitBatch,
   approveBatch,
-  rejectBatch
+  rejectBatch,
+  deleteBatch
 } = require('../controllers/scheduleController');
 
 const router = express.Router();
@@ -29,6 +30,7 @@ router.post('/generate', auth, authorize(ACCESS.schedule.manage), generate);
 router.post('/batches/:batchId/submit', auth, authorize(ACCESS.schedule.submit), submitBatch);
 router.post('/batches/:batchId/approve', auth, authorize(ACCESS.schedule.approve), approveBatch);
 router.post('/batches/:batchId/reject', auth, authorize(ACCESS.schedule.approve), rejectBatch);
+router.delete('/batches/:batchId', auth, authorize(ACCESS.schedule.manage), deleteBatch);
 router.put('/:id/move-slot', auth, authorize(ACCESS.schedule.manage), moveItemSlot);
 router.put('/:id/change-assignment', auth, authorize(ACCESS.schedule.manage), changeItemAssignment);
 router.put('/:id', auth, authorize(ACCESS.schedule.manage), updateItem);
