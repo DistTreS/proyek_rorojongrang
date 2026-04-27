@@ -583,13 +583,25 @@ def _normalize_inputs(data: dict[str, Any]) -> tuple[dict[str, Any], list[dict[s
             if rombel_id > 0:
                 student_enrollment_map[student_id].add(rombel_id)
 
+    # Simpan identitas siswa (nama + NIS) dari raw payload untuk pelaporan konflik
+    student_identity_map: dict[int, dict[str, str | None]] = {}
+    for raw in raw_student_enrollments:
+        sid = _safe_int(raw.get("student_id"), default=0, min_value=0)
+        if sid > 0:
+            student_identity_map[sid] = {
+                "student_name": str(raw["student_name"]) if raw.get("student_name") else None,
+                "nis": str(raw["nis"]) if raw.get("nis") else None,
+            }
     student_enrollments: list[dict[str, Any]] = []
     for student_id, rombel_ids in student_enrollment_map.items():
         if not rombel_ids:
             continue
+        identity = student_identity_map.get(student_id, {})
         student_enrollments.append(
             {
                 "student_id": student_id,
+                "student_name": identity.get("student_name"),
+                "nis": identity.get("nis"),
                 "rombel_ids": sorted(rombel_ids),
             }
         )
@@ -663,6 +675,142 @@ def _build_student_assignment_maps(
     }
 
     return student_assignment_map, assignment_student_tuple_map, warnings
+
+
+def _build_elective_student_conflict_pairs(
+    assignments: list[dict[str, Any]],
+    student_enrollments: list[dict[str, Any]],
+) -> tuple[frozenset[tuple[int, int]], dict[tuple[int, int], int]]:
+    """Bangun set pasangan (a1, a2) assignment PEMINATAN yang berbagi siswa.
+
+    Mengembalikan:
+    - frozenset pasangan (aid1, aid2) yang berpotensi bentrok
+    - dict bobot {(aid1, aid2): jumlah_siswa_bersama}
+      (pasang dengan lebih banyak siswa bersama = penalti lebih tinggi)
+    """
+    # Step 1: elective rombel → assignment IDs
+    elective_rombel_to_assignments: dict[int, list[int]] = defaultdict(list)
+    for assignment in assignments:
+        if _resolve_assignment_track(assignment) == "elective":
+            rombel_id = _safe_int(assignment.get("rombel_id"), default=0, min_value=0)
+            if rombel_id > 0:
+                elective_rombel_to_assignments[rombel_id].append(assignment["id"])
+
+    if not elective_rombel_to_assignments:
+        return frozenset(), {}
+
+    # Step 2: hitung bobot tiap pasang berdasarkan jumlah siswa bersama
+    pair_student_count: dict[tuple[int, int], int] = defaultdict(int)
+    for enrollment in student_enrollments:
+        rombel_ids = enrollment["rombel_ids"]
+
+        # Kumpulkan semua assignment peminatan siswa ini
+        student_elective_aids: list[int] = []
+        for rombel_id in rombel_ids:
+            student_elective_aids.extend(elective_rombel_to_assignments.get(rombel_id, []))
+
+        if len(student_elective_aids) < 2:
+            continue
+
+        sorted_aids = sorted(set(student_elective_aids))
+        for i in range(len(sorted_aids)):
+            for j in range(i + 1, len(sorted_aids)):
+                pair_student_count[(sorted_aids[i], sorted_aids[j])] += 1
+
+    return frozenset(pair_student_count.keys()), dict(pair_student_count)
+
+
+def _report_elective_student_conflicts(
+    final_schedule_map: dict[int, tuple[int, ...]],
+    assignments: list[dict[str, Any]],
+    student_enrollments: list[dict[str, Any]],
+    slots_by_id: dict[int, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Deteksi dan laporkan konflik peminatan siswa pada jadwal final.
+
+    Mengembalikan list konflik per-siswa, masing-masing berisi:
+      - student_id, student_name, nis
+      - conflicting_pairs: pasangan assignment peminatan yang bentrok di slot yang sama,
+        beserta detail slot (hari, jam, label).
+    """
+    # elective rombel → assignment IDs
+    elective_rombel_to_assignments: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for assignment in assignments:
+        if _resolve_assignment_track(assignment) == "elective":
+            rombel_id = _safe_int(assignment.get("rombel_id"), default=0, min_value=0)
+            if rombel_id > 0:
+                elective_rombel_to_assignments[rombel_id].append(assignment)
+
+    if not elective_rombel_to_assignments:
+        return []
+
+    # Build slot set per assignment (elective only)
+    elective_slot_sets: dict[int, set[int]] = {}
+    for assignment in assignments:
+        if _resolve_assignment_track(assignment) == "elective":
+            aid = assignment["id"]
+            elective_slot_sets[aid] = set(final_schedule_map.get(aid, ()))
+
+    reports: list[dict[str, Any]] = []
+
+    for enrollment in student_enrollments:
+        student_id = enrollment["student_id"]
+        student_name = enrollment.get("student_name")
+        nis = enrollment.get("nis")
+        rombel_ids = enrollment["rombel_ids"]
+
+        # Kumpulkan semua assignment peminatan siswa ini
+        student_elective_assignments: list[dict[str, Any]] = []
+        for rombel_id in rombel_ids:
+            student_elective_assignments.extend(elective_rombel_to_assignments.get(rombel_id, []))
+
+        if len(student_elective_assignments) < 2:
+            continue
+
+        # Cek setiap pasangan apakah ada slot yang sama
+        conflicting_pairs: list[dict[str, Any]] = []
+        sorted_assignments = sorted(student_elective_assignments, key=lambda a: a["id"])
+        for i in range(len(sorted_assignments)):
+            for j in range(i + 1, len(sorted_assignments)):
+                a1 = sorted_assignments[i]
+                a2 = sorted_assignments[j]
+                aid1, aid2 = a1["id"], a2["id"]
+                shared_slots = elective_slot_sets.get(aid1, set()) & elective_slot_sets.get(aid2, set())
+                if not shared_slots:
+                    continue
+
+                # Format detail slot yang bentrok
+                slot_details = []
+                for slot_id in sorted(shared_slots):
+                    slot = slots_by_id.get(slot_id, {})
+                    day_labels = {1: "Senin", 2: "Selasa", 3: "Rabu", 4: "Kamis", 5: "Jumat", 6: "Sabtu"}
+                    day = slot.get("day_of_week", 0)
+                    slot_details.append({
+                        "slot_id": slot_id,
+                        "day": day_labels.get(day, f"Hari {day}"),
+                        "time": f"{slot.get('start_time', '?')} - {slot.get('end_time', '?')}",
+                        "label": slot.get("label"),
+                    })
+
+                conflicting_pairs.append({
+                    "assignment_id_1": aid1,
+                    "rombel_id_1": a1.get("rombel_id"),
+                    "assignment_id_2": aid2,
+                    "rombel_id_2": a2.get("rombel_id"),
+                    "shared_slot_count": len(shared_slots),
+                    "slots": slot_details,
+                })
+
+        if conflicting_pairs:
+            reports.append({
+                "student_id": student_id,
+                "student_name": student_name,
+                "nis": nis,
+                "conflict_count": len(conflicting_pairs),
+                "conflicting_pairs": conflicting_pairs,
+            })
+
+    return reports
 
 
 def _build_grade_track_assignment_map(
@@ -1203,7 +1351,12 @@ def _calculate_soft_penalty_breakdown(
     rombel_daily_subject_overload_penalty: int,
     distribution_pattern_penalty: int,
     distribution_non_consecutive_penalty: int,
+    elective_conflict_pairs: frozenset[tuple[int, int]] = frozenset(),
+    elective_pair_weights: dict[tuple[int, int], int] | None = None,
 ) -> dict[str, Any]:
+    if elective_pair_weights is None:
+        elective_pair_weights = {}
+
     teacher_subject_day_load: dict[tuple[int, int, int], int] = defaultdict(int)
     rombel_day_subjects: dict[tuple[int, int], set[int]] = defaultdict(set)
 
@@ -1256,11 +1409,31 @@ def _calculate_soft_penalty_breakdown(
         distribution_non_consecutive_units * max(distribution_non_consecutive_penalty, 0)
     )
 
+    # S7: Elective Student Conflict — 1 pasang bentrok = 1 penalty (untuk tampilan UI)
+    # GA internal (_evaluate_schedule) tetap pakai weighted penalty agar optimasi tetap agresif.
+    elective_student_conflict_pairs_count = 0
+    elective_student_conflict_penalty_total = 0
+    if elective_conflict_pairs:
+        slot_set_by_assignment: dict[int, set[int]] = {
+            a["id"]: set(schedule_map.get(a["id"], ()))
+            for a in assignments
+        }
+        for (aid1, aid2) in elective_conflict_pairs:
+            shared_slots = slot_set_by_assignment.get(aid1, set()) & slot_set_by_assignment.get(aid2, set())
+            if not shared_slots:
+                continue
+            elective_student_conflict_pairs_count += 1
+            # Display: 1 bentrok pasang peminatan = 1 penalty (mudah dibaca)
+            # Catatan: GA internal _evaluate_schedule tetap pakai weighted penalty
+            #          (300 × bobot × slot) agar tetap agresif mengoptimasi.
+            elective_student_conflict_penalty_total += 1
+
     total_penalty = (
         teacher_subject_penalty_total
         + rombel_subject_penalty_total
         + distribution_pattern_penalty_total
         + distribution_non_consecutive_penalty_total
+        + elective_student_conflict_penalty_total
     )
 
     return {
@@ -1272,6 +1445,8 @@ def _calculate_soft_penalty_breakdown(
         "distribution_pattern_penalty": distribution_pattern_penalty_total,
         "distribution_non_consecutive_units": distribution_non_consecutive_units,
         "distribution_non_consecutive_penalty": distribution_non_consecutive_penalty_total,
+        "elective_student_conflict_pairs": elective_student_conflict_pairs_count,
+        "elective_student_conflict_penalty": elective_student_conflict_penalty_total,
         "total_penalty": total_penalty,
     }
 
@@ -1342,6 +1517,7 @@ def _calculate_hard_constraint_report(
     slot_day_position_map: dict[int, tuple[int, int]],
     max_parallel_elective_subjects: int,
     enforce_grade_track_constraints: bool,
+    elective_conflict_pairs: frozenset[tuple[int, int]] = frozenset(),
 ) -> dict[str, Any]:
     del slot_day_position_map
     assignment_exact_violations = 0
@@ -1400,6 +1576,17 @@ def _calculate_hard_constraint_report(
             max_parallel_subjects=max_parallel_elective_subjects,
         )
 
+    # Hitung pelanggaran S7: pasangan peminatan yang berbagi siswa dijadwalkan bersamaan
+    elective_student_conflict_violations = 0
+    if enforce_grade_track_constraints and elective_conflict_pairs:
+        slot_set_by_aid: dict[int, set[int]] = {}
+        for assignment in assignments:
+            aid = assignment["id"]
+            slot_set_by_aid[aid] = set(schedule_map.get(aid, ()))
+        for (aid1, aid2) in elective_conflict_pairs:
+            shared = slot_set_by_aid.get(aid1, set()) & slot_set_by_aid.get(aid2, set())
+            elective_student_conflict_violations += len(shared)
+
     status = {
         "each_event_scheduled_exactly_once": assignment_exact_violations == 0,
         "teacher_weekly_hours_fulfilled": teacher_weekly_gap == 0,
@@ -1411,6 +1598,9 @@ def _calculate_hard_constraint_report(
         ),
         "elective_parallel_subject_limit_valid": (
             elective_parallel_overlap_violations == 0 if enforce_grade_track_constraints else None
+        ),
+        "no_elective_student_conflict": (
+            elective_student_conflict_violations == 0 if enforce_grade_track_constraints else None
         ),
     }
 
@@ -1428,6 +1618,9 @@ def _calculate_hard_constraint_report(
             ),
             "elective_parallel_subject_limit": (
                 elective_parallel_overlap_violations if enforce_grade_track_constraints else None
+            ),
+            "elective_student_conflict": (
+                elective_student_conflict_violations if enforce_grade_track_constraints else None
             ),
         },
     }
@@ -1455,7 +1648,11 @@ def _evaluate_schedule(
     elective_block_gap_penalty: int = 0,
     preferred_parallel_elective_subjects: int = 0,
     elective_excess_soft_penalty: int = 0,
+    elective_conflict_pairs: frozenset[tuple[int, int]] = frozenset(),
+    elective_pair_weights: dict[tuple[int, int], int] | None = None,
 ) -> tuple[int, bool]:
+    if elective_pair_weights is None:
+        elective_pair_weights = {}
     teacher_busy: set[tuple[int, int]] = set()
     rombel_busy: set[tuple[int, int]] = set()
     student_busy: set[tuple[int, int]] = set()
@@ -1636,6 +1833,53 @@ def _evaluate_schedule(
                 days_over = max(0, n_active_days - 2)
                 score -= days_over_target * days_over
 
+    # 1b. Hard enforcement elective: max 2 hari aktif + blok konsekutif per hari
+    # Individu GA yang melanggar ini langsung DIBUANG (infeasible) agar GA tidak
+    # menerima solusi yang tidak konsisten dengan hard constraint CP-SAT.
+    if sorted_slot_ids_weekly:
+        slot_day_lookup: dict[int, int] = {
+            sid: _safe_int(slots_by_id[sid].get("day_of_week"), default=0)
+            for sid in slots_by_id
+        }
+        # Bangun urutan slot per hari (berurutan sesuai waktu) untuk cek consecutive
+        slots_sorted_by_day: dict[int, list[int]] = defaultdict(list)
+        for sid in sorted_slot_ids_weekly:
+            d = slot_day_lookup.get(sid, 0)
+            if d > 0:
+                slots_sorted_by_day[d].append(sid)
+
+        for assignment in assignments:
+            assignment_id = assignment["id"]
+            track = assignment_track_map.get(assignment_id)
+            if track != "elective":
+                continue
+            weekly_hours_check = assignment.get("weekly_hours", 0)
+            if (weekly_hours_check or 0) < 4:
+                continue
+            slot_ids_a = set(schedule_map.get(assignment_id, ()))
+            if not slot_ids_a:
+                continue
+
+            by_day_check: dict[int, list[int]] = defaultdict(list)
+            for sid in slot_ids_a:
+                d = slot_day_lookup.get(sid, 0)
+                if d > 0:
+                    by_day_check[d].append(sid)
+
+            # Hard: max 2 hari aktif
+            if len(by_day_check) > 2:
+                return -1_000_000_000, False
+
+            # Hard: setiap hari harus berurutan (tidak ada celah)
+            for day, day_sids in by_day_check.items():
+                ordered = [s for s in slots_sorted_by_day[day] if s in slot_ids_a]
+                if len(ordered) < 2:
+                    continue
+                for k in range(len(ordered) - 1):
+                    cur_pos = slots_sorted_by_day[day].index(ordered[k])
+                    nxt_pos = slots_sorted_by_day[day].index(ordered[k + 1])
+                    if nxt_pos != cur_pos + 1:
+                        return -1_000_000_000, False  # ada celah → infeasible
 
     # 2. Peminatan parallel excess soft penalty (preferred < max hard)
     if elective_excess_soft_penalty > 0 and preferred_parallel_elective_subjects > 0:
@@ -1653,6 +1897,23 @@ def _evaluate_schedule(
             excess = cnt - preferred_parallel_elective_subjects
             if excess > 0:
                 score -= elective_excess_soft_penalty * excess
+    # 3. S7: Elective vs Elective Student Conflict — weighted soft penalty
+    # Penalti per slot yang bertabrakan, dikalikan bobot (jumlah siswa bersama).
+    # Pasangan dengan lebih banyak siswa bersama mendapat penalti lebih tinggi
+    # sehingga GA memprioritaskan pemisahan kelas yang paling berdampak.
+    BASE_ELECTIVE_CONFLICT_PENALTY = 300
+    if elective_conflict_pairs:
+        slot_set_by_assignment: dict[int, set[int]] = {
+            a["id"]: set(schedule_map.get(a["id"], ()))
+            for a in assignments
+        }
+        for (aid1, aid2) in elective_conflict_pairs:
+            shared_slots = slot_set_by_assignment.get(aid1, set()) & slot_set_by_assignment.get(aid2, set())
+            if not shared_slots:
+                continue
+            # Bobot berdasarkan jumlah siswa yang terpengaruh (dari elective_pair_weights)
+            weight = elective_pair_weights.get((aid1, aid2), elective_pair_weights.get((aid2, aid1), 1))
+            score -= BASE_ELECTIVE_CONFLICT_PENALTY * weight * len(shared_slots)
 
     return score, True
 
@@ -1665,6 +1926,7 @@ def _solve_cp_sat(
     grade_track_map: dict[int, dict[str, tuple[int, ...]]],
     config: dict[str, Any],
     seed_schedule_map: dict[int, tuple[int, ...]] | None = None,
+    elective_conflict_pairs: frozenset[tuple[int, int]] = frozenset(),
 ) -> tuple[dict[int, tuple[int, ...]] | None, int, list[dict[str, Any]]]:
     model = cp_model.CpModel()
 
@@ -1830,6 +2092,63 @@ def _solve_cp_sat(
                 slots_by_day=slots_by_day,
                 x=x,
             )
+
+    # ======= ELECTIVE CONSECUTIVE + MAX 2 DAYS CONSTRAINT ====================
+    # Untuk mata pelajaran peminatan (≥ 4 JP/minggu), terapkan dua aturan ketat:
+    #   1. Maksimal 2 hari aktif per minggu  (tidak tersebar lebih dari 2 hari)
+    #   2. Setiap hari aktif: slot harus berurutan tanpa celah (blok konsekutif)
+    # Contoh ideal untuk 5 JP: 3+2 atau 2+3 pada 2 hari berbeda.
+    # Alasan: guru peminatan lebih efisien masuk 2 hari blok daripada 5 hari × 1 JP.
+    # Hanya aktif saat enforce_grade_track_constraints = True (ada peminatan).
+    # ==========================================================================
+    if enforce_grade_track_constraints:
+        for assignment in assignments:
+            assignment_id = assignment["id"]
+            track = _resolve_assignment_track(assignment)
+            if track != "elective":
+                continue
+            weekly_hours = _safe_int(assignment.get("weekly_hours"), default=0, min_value=0)
+            if weekly_hours < 4:
+                continue  # < 4 JP tidak perlu aturan ini
+
+            day_active_vars_elec: list[cp_model.IntVar] = []
+
+            for day, day_slot_ids in slots_by_day.items():
+                if not day_slot_ids:
+                    continue
+
+                day_sum_elec = sum(x[(assignment_id, sid)] for sid in day_slot_ids)
+                day_active_elec = model.NewBoolVar(f"elec_blk_act_a{assignment_id}_d{day}")
+                model.Add(day_sum_elec >= 1).OnlyEnforceIf(day_active_elec)
+                model.Add(day_sum_elec == 0).OnlyEnforceIf(day_active_elec.Not())
+                day_active_vars_elec.append(day_active_elec)
+
+                # Hard: setiap slot pada hari ini harus berurutan (max 1 blok/hari)
+                # Teknik start-of-block: start_var = 1 iff slot[i]=1 AND slot[i-1]=0
+                start_vars_elec: list[cp_model.IntVar] = []
+                for idx, sid in enumerate(day_slot_ids):
+                    sv = model.NewBoolVar(f"elec_blk_sv_a{assignment_id}_d{day}_i{idx}")
+                    if idx == 0:
+                        model.Add(sv == x[(assignment_id, sid)])
+                    else:
+                        prev_sid = day_slot_ids[idx - 1]
+                        model.Add(sv <= x[(assignment_id, sid)])
+                        model.Add(sv <= 1 - x[(assignment_id, prev_sid)])
+                        model.Add(sv >= x[(assignment_id, sid)] - x[(assignment_id, prev_sid)])
+                    start_vars_elec.append(sv)
+
+                blk_cnt = model.NewIntVar(0, len(day_slot_ids), f"elec_blk_cnt_a{assignment_id}_d{day}")
+                model.Add(blk_cnt == sum(start_vars_elec))
+                # Maksimal 1 blok berurutan per hari (tanpa gap)
+                model.Add(blk_cnt <= 1)
+
+            # Hard: maksimal 2 hari aktif per minggu
+            if day_active_vars_elec:
+                total_active_days_elec = model.NewIntVar(
+                    0, len(day_active_vars_elec), f"elec_blk_days_a{assignment_id}"
+                )
+                model.Add(total_active_days_elec == sum(day_active_vars_elec))
+                model.Add(total_active_days_elec <= 2)
 
     # grade_slot_elective_active_map: menyimpan elective_active variable per grade per slot
     # untuk digunakan kembali pada constraint utama slot coverage di bawah.
@@ -2313,6 +2632,11 @@ def _solve_cp_sat(
     else:
         model.Maximize(0)
 
+    # S7 (Elective Student Conflict) TIDAK dimasukkan ke CP-SAT objective.
+    # Alasan: formulasi dengan has_conflict BoolVars menambah 20.000+ constraint,
+    # membuat CP-SAT sangat lambat dan memicu rescue loop yang panjang.
+    # S7 ditangani sepenuhnya oleh GA evaluator + repair + Phase 2.
+
     seed_match_weight = _safe_int(config.get("seed_match_weight"), default=0, min_value=0, max_value=20)
     if seed_schedule_map:
         for assignment in assignments:
@@ -2525,6 +2849,7 @@ def _mutate_schedule(
     elective_block_gap_penalty: int = 0,
     preferred_parallel_elective_subjects: int = 0,
     elective_excess_soft_penalty: int = 0,
+    elective_conflict_pairs: frozenset[tuple[int, int]] = frozenset(),
 ) -> dict[int, tuple[int, ...]]:
     base = _clone_schedule_map(schedule_map)
     best_score, base_feasible = _evaluate_schedule(
@@ -2548,6 +2873,7 @@ def _mutate_schedule(
         elective_block_gap_penalty=elective_block_gap_penalty,
         preferred_parallel_elective_subjects=preferred_parallel_elective_subjects,
         elective_excess_soft_penalty=elective_excess_soft_penalty,
+        elective_conflict_pairs=elective_conflict_pairs,
     )
     if not base_feasible:
         best_score = -1_000_000_000
@@ -2602,6 +2928,7 @@ def _mutate_schedule(
                     elective_block_gap_penalty=elective_block_gap_penalty,
                     preferred_parallel_elective_subjects=preferred_parallel_elective_subjects,
                     elective_excess_soft_penalty=elective_excess_soft_penalty,
+                    elective_conflict_pairs=elective_conflict_pairs,
                 )
                 if feasible and trial_score > best_score:
                     best_score = trial_score
@@ -2646,6 +2973,7 @@ def _mutate_schedule(
                 elective_block_gap_penalty=elective_block_gap_penalty,
                 preferred_parallel_elective_subjects=preferred_parallel_elective_subjects,
                 elective_excess_soft_penalty=elective_excess_soft_penalty,
+                elective_conflict_pairs=elective_conflict_pairs,
             )
             if feasible and trial_score > best_score:
                 best_score = trial_score
@@ -2677,6 +3005,7 @@ def _crossover_schedules(
     elective_block_gap_penalty: int = 0,
     preferred_parallel_elective_subjects: int = 0,
     elective_excess_soft_penalty: int = 0,
+    elective_conflict_pairs: frozenset[tuple[int, int]] = frozenset(),
 ) -> dict[int, tuple[int, ...]]:
     child = _clone_schedule_map(parent_a)
     assignment_ids = [assignment["id"] for assignment in assignments]
@@ -2714,6 +3043,251 @@ def _crossover_schedules(
             child = trial
 
     return child
+
+
+def _repair_elective_student_conflicts(
+    schedule_map: dict[int, tuple[int, ...]],
+    assignments: list[dict[str, Any]],
+    slots_by_id: dict[int, dict[str, Any]],
+    elective_conflict_pairs: frozenset[tuple[int, int]],
+    slot_ids: list[int],
+    max_passes: int = 3,
+    elective_pair_weights: dict[tuple[int, int], int] | None = None,
+) -> tuple[dict[int, tuple[int, ...]], int]:
+    """Greedy S7 repair: untuk setiap pasang peminatan yang berbagi slot,
+    coba pindahkan salah satu ke slot lain yang tidak bentrok.
+    Pasangan dengan lebih banyak siswa diprioritaskan lebih dulu.
+    Mengembalikan (jadwal_baru, jumlah_pelanggaran_sisa)."""
+    if not elective_conflict_pairs:
+        return schedule_map, 0
+
+    if elective_pair_weights is None:
+        elective_pair_weights = {}
+
+    assignments_by_id = {a["id"]: a for a in assignments}
+
+    # Bangun indeks busy per guru & rombel untuk validasi cepat
+    teacher_busy: dict[int, set[int]] = defaultdict(set)
+    rombel_busy: dict[int, set[int]] = defaultdict(set)
+    for assignment in assignments:
+        aid = assignment["id"]
+        for slot_id in schedule_map.get(aid, ()):
+            teacher_busy[assignment["teacher_id"]].add(slot_id)
+            rombel_busy[assignment["rombel_id"]].add(slot_id)
+
+    result = _clone_schedule_map(schedule_map)
+    all_slot_ids_set = set(slot_ids)
+
+    # Urut pasangan berdasarkan bobot siswa: pasang paling berdampak duluan
+    sorted_pairs = sorted(
+        elective_conflict_pairs,
+        key=lambda p: elective_pair_weights.get(p, elective_pair_weights.get((p[1], p[0]), 1)),
+        reverse=True,
+    )
+
+    for _pass in range(max_passes):
+        improved = False
+        for (aid1, aid2) in sorted_pairs:
+            slots1 = set(result.get(aid1, ()))
+            slots2 = set(result.get(aid2, ()))
+            shared = slots1 & slots2
+            if not shared:
+                continue
+
+            a2 = assignments_by_id.get(aid2)
+            if not a2:
+                continue
+            teacher_id2 = a2["teacher_id"]
+            rombel_id2 = a2["rombel_id"]
+
+            for conflict_slot in sorted(shared):
+                # Slot kandidat: tidak dipakai a2, tidak ada di slots1, guru & rombel bebas
+                candidates = [
+                    s for s in all_slot_ids_set
+                    if s not in slots2
+                    and s not in slots1
+                    and s not in teacher_busy[teacher_id2]
+                    and s not in rombel_busy[rombel_id2]
+                    # Validasi day_of_week jika tersedia
+                    and slots_by_id.get(s, {}).get("day_of_week", 0) in range(1, 7)
+                ]
+                if not candidates:
+                    continue
+
+                new_slot = candidates[0]  # ambil yang pertama (greedy)
+
+                # Pindahkan slot
+                new_slots2 = (slots2 - {conflict_slot}) | {new_slot}
+                result[aid2] = tuple(sorted(new_slots2))
+
+                # Update indeks
+                teacher_busy[teacher_id2].discard(conflict_slot)
+                teacher_busy[teacher_id2].add(new_slot)
+                rombel_busy[rombel_id2].discard(conflict_slot)
+                rombel_busy[rombel_id2].add(new_slot)
+
+                slots2 = new_slots2
+                improved = True
+
+        if not improved:
+            break
+
+    # Hitung sisa pelanggaran
+    remaining = 0
+    for (aid1, aid2) in elective_conflict_pairs:
+        shared = set(result.get(aid1, ())) & set(result.get(aid2, ()))
+        remaining += len(shared)
+
+    return result, remaining
+
+
+def _solve_elective_phase2(
+    elective_assignments: list[dict[str, Any]],
+    current_schedule_map: dict[int, tuple[int, ...]],
+    all_assignments: list[dict[str, Any]],
+    slots: list[dict[str, Any]],
+    elective_conflict_pairs: frozenset[tuple[int, int]],
+    assignment_grade_map: dict[int, int],
+    assignment_track_map: dict[int, str],
+    max_parallel_elective_subjects: int,
+    solver_seconds: float = 90.0,
+    random_seed: int = 42,
+    solver_workers: int = 8,
+) -> tuple[dict[int, tuple[int, ...]] | None, list[dict[str, Any]]]:
+    """Phase 2: Re-solve HANYA assignment peminatan dengan S7 sebagai hard constraint.
+    Submasalah jauh lebih kecil (50-150 assignment vs ratusan total) sehingga feasible
+    diselesaikan dalam hitungan detik oleh CP-SAT.
+    Mandatory assignments tetap pada posisi awal (tidak diubah).
+    """
+    if not elective_assignments:
+        return None, []
+
+    slot_ids = [s["id"] for s in slots]
+    slots_by_id = {s["id"]: s for s in slots}
+    elective_ids_set = {a["id"] for a in elective_assignments}
+
+    # === Bangun peta "slot sibuk" dari assignment NON-elective (mandatory/fixed) ===
+    teacher_busy_slots: dict[int, set[int]] = defaultdict(set)
+    rombel_busy_slots: dict[int, set[int]] = defaultdict(set)
+    grade_mandatory_slots: dict[int, set[int]] = defaultdict(set)
+
+    for assignment in all_assignments:
+        aid = assignment["id"]
+        track = assignment_track_map.get(aid)
+        if track == "elective":
+            continue  # elective akan di-re-solve
+        grade_level = assignment_grade_map.get(aid, 0)
+        for sid in current_schedule_map.get(aid, ()):
+            teacher_busy_slots[assignment["teacher_id"]].add(sid)
+            rombel_busy_slots[assignment["rombel_id"]].add(sid)
+            if grade_level > 0:
+                grade_mandatory_slots[grade_level].add(sid)
+
+    # === Bangun CP-SAT model untuk elective saja ===
+    model = cp_model.CpModel()
+    x: dict[tuple[int, int], Any] = {}
+
+    for assignment in elective_assignments:
+        aid = assignment["id"]
+        teacher_id = assignment["teacher_id"]
+        rombel_id = assignment["rombel_id"]
+        weekly_hours = assignment["weekly_hours"]
+        grade_level = assignment_grade_map.get(aid, 0)
+
+        available = [
+            sid for sid in slot_ids
+            if sid not in teacher_busy_slots[teacher_id]
+            and sid not in rombel_busy_slots[rombel_id]
+            and (grade_level <= 0 or sid not in grade_mandatory_slots[grade_level])
+            and slots_by_id.get(sid, {}).get("day_of_week", 0) in range(1, 7)
+        ]
+
+        if len(available) < weekly_hours:
+            # Tidak cukup slot — phase 2 tidak feasible untuk assignment ini
+            return None, [_issue(
+                "ELECTIVE_PHASE2_INFEASIBLE",
+                f"Phase 2 gagal: assignment {aid} hanya punya {len(available)} slot tersedia, butuh {weekly_hours}",
+                {"assignment_id": aid, "available": len(available), "needed": weekly_hours},
+            )]
+
+        for sid in available:
+            x[(aid, sid)] = model.NewBoolVar(f"ep2_{aid}_{sid}")
+
+        model.Add(sum(x[(aid, sid)] for sid in available if (aid, sid) in x) == weekly_hours)
+
+    # Hard: tidak ada dua elective yang sama guru di slot yang sama
+    teacher_slot_vars: dict[tuple[int, int], list[Any]] = defaultdict(list)
+    rombel_slot_vars: dict[tuple[int, int], list[Any]] = defaultdict(list)
+    grade_slot_vars: dict[tuple[int, int], list[Any]] = defaultdict(list)
+
+    for assignment in elective_assignments:
+        aid = assignment["id"]
+        grade_level = assignment_grade_map.get(aid, 0)
+        for sid in slot_ids:
+            if (aid, sid) not in x:
+                continue
+            teacher_slot_vars[(assignment["teacher_id"], sid)].append(x[(aid, sid)])
+            rombel_slot_vars[(assignment["rombel_id"], sid)].append(x[(aid, sid)])
+            if grade_level > 0:
+                grade_slot_vars[(grade_level, sid)].append(x[(aid, sid)])
+
+    for vlist in teacher_slot_vars.values():
+        if len(vlist) > 1:
+            model.Add(sum(vlist) <= 1)
+    for vlist in rombel_slot_vars.values():
+        if len(vlist) > 1:
+            model.Add(sum(vlist) <= 1)
+    for vlist in grade_slot_vars.values():
+        if len(vlist) > max_parallel_elective_subjects:
+            model.Add(sum(vlist) <= max_parallel_elective_subjects)
+
+    # Hard S7: pasangan elective yang berbagi siswa TIDAK BOLEH dijadwalkan bersama
+    for (aid1, aid2) in elective_conflict_pairs:
+        if aid1 not in elective_ids_set or aid2 not in elective_ids_set:
+            continue
+        for sid in slot_ids:
+            if (aid1, sid) not in x or (aid2, sid) not in x:
+                continue
+            model.Add(x[(aid1, sid)] + x[(aid2, sid)] <= 1)
+
+    # Objective: cocokkan sebisa mungkin dengan jadwal lama (gunakan hint)
+    for assignment in elective_assignments:
+        aid = assignment["id"]
+        old_slots = set(current_schedule_map.get(aid, ()))
+        for sid in slot_ids:
+            if (aid, sid) in x:
+                model.AddHint(x[(aid, sid)], 1 if sid in old_slots else 0)
+
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = float(solver_seconds)
+    solver.parameters.num_search_workers = int(solver_workers)
+    solver.parameters.random_seed = int(random_seed + 999)
+
+    status = solver.Solve(model)
+
+    if status not in {cp_model.OPTIMAL, cp_model.FEASIBLE}:
+        return None, [_issue(
+            "ELECTIVE_PHASE2_FAILED",
+            "Phase 2 tidak menemukan jadwal peminatan bebas-bentrok dalam batas waktu",
+            {"status": solver.StatusName(status), "solver_seconds": solver_seconds,
+             "wall_time": solver.WallTime()},
+        )]
+
+    new_elective: dict[int, tuple[int, ...]] = {}
+    for assignment in elective_assignments:
+        aid = assignment["id"]
+        chosen = tuple(sorted(
+            sid for sid in slot_ids
+            if (aid, sid) in x and solver.BooleanValue(x[(aid, sid)])
+        ))
+        new_elective[aid] = chosen
+
+    return new_elective, [_issue(
+        "ELECTIVE_PHASE2_SUCCESS",
+        "Phase 2 berhasil menjadwalkan ulang peminatan tanpa bentrok siswa",
+        {"status": solver.StatusName(status), "wall_time": round(solver.WallTime(), 2),
+         "elective_count": len(elective_assignments)},
+    )]
 
 
 def _repair_distribution_schedule(
@@ -2958,6 +3532,7 @@ def _run_ga_refinement(
     elective_block_gap_penalty: int = 0,
     preferred_parallel_elective_subjects: int = 0,
     elective_excess_soft_penalty: int = 0,
+    elective_conflict_pairs: frozenset[tuple[int, int]] = frozenset(),
 ) -> tuple[dict[int, tuple[int, ...]], int, list[dict[str, Any]]]:
     warnings: list[dict[str, Any]] = []
 
@@ -3071,6 +3646,7 @@ def _run_ga_refinement(
                 elective_block_gap_penalty=elective_block_gap_penalty,
                 preferred_parallel_elective_subjects=preferred_parallel_elective_subjects,
                 elective_excess_soft_penalty=elective_excess_soft_penalty,
+                elective_conflict_pairs=elective_conflict_pairs,
             )
             if feasible:
                 penalty_breakdown = _calculate_soft_penalty_breakdown(
@@ -3108,6 +3684,41 @@ def _run_ga_refinement(
             best_score = top_score
             best_schedule = _clone_schedule_map(top_individual)
 
+        # Setelah menemukan kandidat terbaik, jalankan S7 repair greedy untuk langsung
+        # memperbaiki pelanggaran bentrok siswa peminatan yang tersisa.
+        if elective_conflict_pairs:
+            repaired_s7, remaining_s7 = _repair_elective_student_conflicts(
+                schedule_map=best_schedule,
+                assignments=assignments,
+                slots_by_id=slots_by_id,
+                elective_conflict_pairs=elective_conflict_pairs,
+                slot_ids=slot_ids,
+                max_passes=3,
+            )
+            if remaining_s7 == 0 or True:  # selalu pertimbangkan hasil repair
+                repair_score, repair_feasible = _evaluate_schedule(
+                    repaired_s7,
+                    assignments,
+                    slots_by_id,
+                    slot_day_position_map,
+                    preference_score_map,
+                    day_spread_weight,
+                    assignment_student_map,
+                    assignment_grade_map,
+                    assignment_track_map,
+                    teacher_subject_daily_limit,
+                    teacher_subject_daily_overload_penalty,
+                    rombel_daily_subject_limit,
+                    rombel_daily_subject_overload_penalty,
+                    distribution_pattern_penalty,
+                    distribution_non_consecutive_penalty,
+                    max_parallel_elective_subjects,
+                    elective_conflict_pairs=elective_conflict_pairs,
+                )
+                if repair_feasible and repair_score > best_score:
+                    best_score = repair_score
+                    best_schedule = repaired_s7
+
         next_population: list[dict[int, tuple[int, ...]]] = []
         elite_count = min(config["ga_elite_count"], len(scored_population))
         for index in range(elite_count):
@@ -3142,6 +3753,7 @@ def _run_ga_refinement(
                     elective_block_gap_penalty=elective_block_gap_penalty,
                     preferred_parallel_elective_subjects=preferred_parallel_elective_subjects,
                     elective_excess_soft_penalty=elective_excess_soft_penalty,
+                    elective_conflict_pairs=elective_conflict_pairs,
                 )
             if rng.random() < config["ga_mutation_rate"]:
                 child = _mutate_schedule(
@@ -3169,11 +3781,45 @@ def _run_ga_refinement(
                     elective_block_gap_penalty=elective_block_gap_penalty,
                     preferred_parallel_elective_subjects=preferred_parallel_elective_subjects,
                     elective_excess_soft_penalty=elective_excess_soft_penalty,
+                    elective_conflict_pairs=elective_conflict_pairs,
                 )
 
             next_population.append(child)
 
         population = next_population
+
+    # Satu kali final S7 repair pada hasil terbaik
+    if elective_conflict_pairs:
+        final_repaired, _ = _repair_elective_student_conflicts(
+            schedule_map=best_schedule,
+            assignments=assignments,
+            slots_by_id=slots_by_id,
+            elective_conflict_pairs=elective_conflict_pairs,
+            slot_ids=slot_ids,
+            max_passes=5,
+        )
+        final_repair_score, final_repair_feasible = _evaluate_schedule(
+            final_repaired,
+            assignments,
+            slots_by_id,
+            slot_day_position_map,
+            preference_score_map,
+            day_spread_weight,
+            assignment_student_map,
+            assignment_grade_map,
+            assignment_track_map,
+            teacher_subject_daily_limit,
+            teacher_subject_daily_overload_penalty,
+            rombel_daily_subject_limit,
+            rombel_daily_subject_overload_penalty,
+            distribution_pattern_penalty,
+            distribution_non_consecutive_penalty,
+            max_parallel_elective_subjects,
+            elective_conflict_pairs=elective_conflict_pairs,
+        )
+        if final_repair_feasible and final_repair_score > best_score:
+            best_schedule = final_repaired
+            best_score = final_repair_score
 
     return best_schedule, best_score, warnings
 
@@ -3291,6 +3937,15 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
         ) = _build_grade_track_assignment_map(assignments)
         warnings.extend(grade_track_warnings)
 
+    # S7: Pasangan assignment peminatan yang berbagi siswa (student enrollments).
+    # Dihitung sekali di sini dan dipakai oleh semua call ke CP-SAT dan GA evaluation.
+    elective_conflict_pairs: frozenset[tuple[int, int]] = frozenset()
+    elective_pair_weights: dict[tuple[int, int], int] = {}
+    if enforce_grade_track_constraints and assignments and student_enrollments:
+        elective_conflict_pairs, elective_pair_weights = _build_elective_student_conflict_pairs(
+            assignments, student_enrollments
+        )
+
     engine = "cp-sat"
     schedule_items: list[dict[str, Any]] = []
     feasible = False
@@ -3321,6 +3976,7 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
             student_assignment_map=student_assignment_map,
             grade_track_map=grade_track_map,
             config=cp_sat_config,
+            elective_conflict_pairs=elective_conflict_pairs,
         )
         if (
             not cp_schedule_map
@@ -3339,6 +3995,7 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                     student_assignment_map=student_assignment_map,
                     grade_track_map=grade_track_map,
                     config=retry_config,
+                    elective_conflict_pairs=elective_conflict_pairs,
                 )
                 if retry_schedule_map:
                     cp_schedule_map = retry_schedule_map
@@ -3382,6 +4039,7 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                     student_assignment_map=student_assignment_map,
                     grade_track_map=grade_track_map,
                     config=rescue_config,
+                    elective_conflict_pairs=elective_conflict_pairs,
                 )
                 if rescue_schedule_map:
                     cp_schedule_map = rescue_schedule_map
@@ -3422,6 +4080,7 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                 distribution_pattern_penalty=distribution_pattern_penalty,
                 distribution_non_consecutive_penalty=distribution_non_consecutive_penalty,
                 max_parallel_elective_subjects=max_parallel_elective_subjects,
+                elective_conflict_pairs=elective_conflict_pairs,
             )
             cp_sat_soft_penalties = _calculate_soft_penalty_breakdown(
                 schedule_map=cp_schedule_map,
@@ -3434,6 +4093,8 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                 rombel_daily_subject_overload_penalty=rombel_daily_subject_overload_penalty,
                 distribution_pattern_penalty=distribution_pattern_penalty,
                 distribution_non_consecutive_penalty=distribution_non_consecutive_penalty,
+                elective_conflict_pairs=elective_conflict_pairs,
+                elective_pair_weights=elective_pair_weights,
             )
             if not cp_sat_feasible:
                 conflicts.append(
@@ -3510,6 +4171,7 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                         elective_excess_soft_penalty=_safe_int(
                             config.get("elective_excess_soft_penalty"), default=5, min_value=0
                         ),
+                        elective_conflict_pairs=elective_conflict_pairs,
                     )
                     ga_round_runtime = int(round((time.perf_counter() - ga_started_at) * 1000))
                     ga_runtime_ms += ga_round_runtime
@@ -3541,6 +4203,7 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                         elective_excess_soft_penalty=_safe_int(
                             config.get("elective_excess_soft_penalty"), default=5, min_value=0
                         ),
+                        elective_conflict_pairs=elective_conflict_pairs,
                     )
 
                     if not ga_feasible:
@@ -3569,6 +4232,7 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                         grade_track_map=grade_track_map,
                         config=cp_polish_config,
                         seed_schedule_map=ga_schedule_map,
+                        elective_conflict_pairs=elective_conflict_pairs,
                     )
                     cp_polish_round_runtime = int(round((time.perf_counter() - cp_polish_started_at) * 1000))
                     cp_sat_polish_runtime_ms += cp_polish_round_runtime
@@ -3594,6 +4258,8 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                         rombel_daily_subject_overload_penalty=rombel_daily_subject_overload_penalty,
                         distribution_pattern_penalty=distribution_pattern_penalty,
                         distribution_non_consecutive_penalty=distribution_non_consecutive_penalty,
+                        elective_conflict_pairs=elective_conflict_pairs,
+                        elective_pair_weights=elective_pair_weights,
                     )
                     selected_penalty_total = _safe_int(
                         ga_penalty.get("total_penalty"),
@@ -3622,6 +4288,7 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                             distribution_pattern_penalty=distribution_pattern_penalty,
                             distribution_non_consecutive_penalty=distribution_non_consecutive_penalty,
                             max_parallel_elective_subjects=max_parallel_elective_subjects,
+                            elective_conflict_pairs=elective_conflict_pairs,
                         )
                         if cp_polish_feasible:
                             cp_polish_penalty = _calculate_soft_penalty_breakdown(
@@ -3635,6 +4302,8 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                                 rombel_daily_subject_overload_penalty=rombel_daily_subject_overload_penalty,
                                 distribution_pattern_penalty=distribution_pattern_penalty,
                                 distribution_non_consecutive_penalty=distribution_non_consecutive_penalty,
+                                elective_conflict_pairs=elective_conflict_pairs,
+                                elective_pair_weights=elective_pair_weights,
                             )
                             cp_polish_penalty_total = _safe_int(
                                 cp_polish_penalty.get("total_penalty"),
@@ -3765,6 +4434,69 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                     )
 
             final_evaluated_score = final_score
+
+            # ===== PHASE 2: Re-solve peminatan dengan S7 sebagai HARD constraint =====
+            # Hanya dijalankan jika: (1) ada konflik siswa, (2) cukup sisa waktu.
+            # Jika Phase 2 gagal (infeasible/timeout), jadwal original tetap dipakai.
+            if elective_conflict_pairs and enforce_grade_track_constraints:
+                try:
+                    elective_assignments_list = [
+                        a for a in assignments
+                        if assignment_track_map.get(a["id"]) == "elective"
+                    ]
+                    phase2_remaining_seconds = max(0.0, deadline_at - time.perf_counter() - 10.0)
+                    phase2_seconds = min(90.0, phase2_remaining_seconds * 0.5)
+                    if elective_assignments_list and phase2_seconds >= 20.0:
+                        phase2_result, phase2_msgs = _solve_elective_phase2(
+                            elective_assignments=elective_assignments_list,
+                            current_schedule_map=final_schedule_map,
+                            all_assignments=assignments,
+                            slots=slots,
+                            elective_conflict_pairs=elective_conflict_pairs,
+                            assignment_grade_map=assignment_grade_map,
+                            assignment_track_map=assignment_track_map,
+                            max_parallel_elective_subjects=max_parallel_elective_subjects,
+                            solver_seconds=phase2_seconds,
+                            random_seed=config["random_seed"],
+                            solver_workers=config["solver_workers"],
+                        )
+                        warnings.extend(phase2_msgs)
+                        if phase2_result:
+                            merged = _clone_schedule_map(final_schedule_map)
+                            for aid, sids in phase2_result.items():
+                                merged[aid] = sids
+                            merged_score, merged_feasible = _evaluate_schedule(
+                                schedule_map=merged,
+                                assignments=assignments,
+                                slots_by_id=slots_by_id,
+                                slot_day_position_map=slot_day_position_map,
+                                preference_score_map=preference_score_map,
+                                day_spread_weight=config["objective"]["day_spread_weight"],
+                                assignment_student_map=assignment_student_map,
+                                assignment_grade_map=assignment_grade_map,
+                                assignment_track_map=assignment_track_map,
+                                teacher_subject_daily_limit=teacher_subject_daily_limit,
+                                teacher_subject_daily_overload_penalty=teacher_subject_daily_overload_penalty,
+                                rombel_daily_subject_limit=rombel_daily_subject_limit,
+                                rombel_daily_subject_overload_penalty=rombel_daily_subject_overload_penalty,
+                                distribution_pattern_penalty=distribution_pattern_penalty,
+                                distribution_non_consecutive_penalty=distribution_non_consecutive_penalty,
+                                max_parallel_elective_subjects=max_parallel_elective_subjects,
+                                elective_conflict_pairs=elective_conflict_pairs,
+                            )
+                            # Hanya pakai hasil Phase 2 jika schedule tetap feasible
+                            # (tidak melanggar hard constraint lainnya)
+                            if merged_feasible:
+                                final_schedule_map = merged
+                                final_score = merged_score
+                                final_evaluated_score = merged_score
+                except Exception as _phase2_err:
+                    warnings.append(_issue(
+                        "ELECTIVE_PHASE2_ERROR",
+                        f"Phase 2 dibatalkan karena kesalahan internal: {type(_phase2_err).__name__}",
+                        {"error": str(_phase2_err)[:200]},
+                    ))
+
             final_hard_constraints = _calculate_hard_constraint_report(
                 schedule_map=final_schedule_map,
                 assignments=assignments,
@@ -3772,6 +4504,7 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                 slot_day_position_map=slot_day_position_map,
                 max_parallel_elective_subjects=max_parallel_elective_subjects,
                 enforce_grade_track_constraints=enforce_grade_track_constraints,
+                elective_conflict_pairs=elective_conflict_pairs,
             )
             final_soft_penalties = _calculate_soft_penalty_breakdown(
                 schedule_map=final_schedule_map,
@@ -3784,6 +4517,8 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                 rombel_daily_subject_overload_penalty=rombel_daily_subject_overload_penalty,
                 distribution_pattern_penalty=distribution_pattern_penalty,
                 distribution_non_consecutive_penalty=distribution_non_consecutive_penalty,
+                elective_conflict_pairs=elective_conflict_pairs,
+                elective_pair_weights=elective_pair_weights,
             )
             final_penalty_total = (
                 _safe_int(
@@ -3822,6 +4557,7 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
                         slot_day_position_map=slot_day_position_map,
                         max_parallel_elective_subjects=max_parallel_elective_subjects,
                         enforce_grade_track_constraints=enforce_grade_track_constraints,
+                        elective_conflict_pairs=elective_conflict_pairs,
                     )
                     engine = "cp-sat"
                 elif final_penalty_total < cp_sat_penalty_total:
@@ -3943,6 +4679,30 @@ def generate_schedule(data: dict[str, Any]) -> dict[str, Any]:
         "rombel_daily_subject_soft_limit": rombel_daily_subject_limit,
         "teacher_subject_daily_soft_limit": teacher_subject_daily_limit,
     }
+
+    # Laporan bentrok peminatan siswa pada jadwal final (informatif, bukan error)
+    if enforce_grade_track_constraints and final_schedule_map and student_enrollments:
+        conflict_report = _report_elective_student_conflicts(
+            final_schedule_map=final_schedule_map,
+            assignments=assignments,
+            student_enrollments=student_enrollments,
+            slots_by_id=slots_by_id,
+        )
+        if conflict_report:
+            warnings.append(
+                _issue(
+                    "ELECTIVE_STUDENT_CONFLICT_DETECTED",
+                    (
+                        f"Terdapat {len(conflict_report)} siswa yang masih mengalami bentrok "
+                        f"jadwal peminatan pada hasil akhir. Ini adalah soft constraint — "
+                        f"jadwal tetap valid namun disarankan untuk ditinjau."
+                    ),
+                    {
+                        "total_affected_students": len(conflict_report),
+                        "student_conflicts": conflict_report,
+                    },
+                )
+            )
 
     return {
         "generated_at": generated_at,

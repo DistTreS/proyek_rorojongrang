@@ -26,15 +26,17 @@ const FIXED_GENERATE_CONSTRAINTS = Object.freeze({
   enforce_consecutive_small_assignments: true,
   rombel_daily_subject_soft_limit: 5,
   use_ga: true,
+  max_solver_seconds: 90,
+  total_runtime_seconds: 600,
   ga: {
     enabled: true,
-    population_size: 16,
-    generations: 12,
+    population_size: 28,
+    generations: 20,
     crossover_rate: 0.75,
-    mutation_rate: 0.35,
+    mutation_rate: 0.45,
     tournament_size: 3,
-    elite_count: 2,
-    hybrid_rounds: 2,
+    elite_count: 3,
+    hybrid_rounds: 3,
     hybrid_no_improvement_stop_rounds: 2
   },
   enforce_grade_track_constraints: true,
@@ -179,9 +181,14 @@ const Jadwal = ({
   useEffect(() => {
     const loadInitial = async () => {
       try {
+        const batchParams = {
+          ...(canUseDirectStatusFilter ? { status: effectiveBatchStatusFilter } : {}),
+          ...(hasGuruRole ? { scope } : {})
+        };
         const [periodRes, batchRes] = await Promise.all([
           fetchAllPages(api, '/period'),
-          fetchBatches()
+          api.get('/schedule/batches', batchParams ? { params: batchParams } : undefined)
+            .then(({ data }) => data || [])
         ]);
         const periodItems = periodRes || [];
         setPeriods(periodItems);
@@ -195,14 +202,18 @@ const Jadwal = ({
       }
     };
     loadInitial();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [canUseDirectStatusFilter, effectiveBatchStatusFilter, hasGuruRole, scope]);
 
   useEffect(() => {
     let active = true;
     const refreshBatches = async () => {
       try {
-        const nextBatches = await fetchBatches();
+        const params = {
+          ...(canUseDirectStatusFilter ? { status: effectiveBatchStatusFilter } : {}),
+          ...(hasGuruRole ? { scope } : {})
+        };
+        const { data } = await api.get('/schedule/batches', params ? { params } : undefined);
+        const nextBatches = data || [];
         if (active) setBatches(nextBatches);
       } catch (err) {
         if (active) setError(err.response?.data?.message || 'Gagal memuat batch jadwal');
@@ -210,7 +221,6 @@ const Jadwal = ({
     };
     refreshBatches();
     return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, hasGuruRole, canUseDirectStatusFilter, effectiveBatchStatusFilter]);
 
   useEffect(() => {
@@ -631,6 +641,8 @@ const Jadwal = ({
           </div>
         </Card>
       )}
+
+
 
       <Card className="overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 space-y-3">

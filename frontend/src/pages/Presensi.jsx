@@ -125,9 +125,48 @@ const Presensi = () => {
   };
 
   useEffect(() => {
-    load(1);
-    loadManualOptions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const loadInitial = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [meetingRes, scheduleRes] = await Promise.all([
+          api.get('/attendance/meetings', {
+            params: buildPageParams({
+              page: 1,
+              pageSize: DEFAULT_PAGE_SIZE
+            })
+          }),
+          api.get('/schedule', {
+            params: {
+              scope: 'personal'
+            }
+          })
+        ]);
+        const normalized = normalizePaginatedResponse(meetingRes.data);
+        setMeetings(normalized.items || []);
+        setPagination(normalized);
+        setPage(normalized.page);
+        setTeachingSchedule(scheduleRes.data || []);
+      } catch (err) {
+        setError(err.response?.data?.message || 'Gagal memuat presensi');
+      } finally {
+        setLoading(false);
+      }
+
+      setManualOptionsLoading(true);
+      try {
+        const { data } = await api.get('/attendance/manual-options');
+        setManualRombelOptions(Array.isArray(data?.rombels) ? data.rombels : []);
+        setManualSubjectOptions(Array.isArray(data?.subjects) ? data.subjects : []);
+      } catch {
+        setManualRombelOptions([]);
+        setManualSubjectOptions([]);
+      } finally {
+        setManualOptionsLoading(false);
+      }
+    };
+
+    loadInitial();
   }, []);
 
   const updateMeetingForm = (field, value) => {

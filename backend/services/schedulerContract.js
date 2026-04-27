@@ -33,7 +33,8 @@ const normalizeHardConstraintSummary = (hardConstraints) => {
       slotTimeValid: toBooleanOrNull(status.slot_time_valid),
       distributionPatternValid: toBooleanOrNull(status.distribution_pattern_valid),
       mandatoryVsElectiveNoOverlap: toBooleanOrNull(status.mandatory_vs_elective_no_overlap),
-      electiveParallelSubjectLimitValid: toBooleanOrNull(status.elective_parallel_subject_limit_valid)
+      electiveParallelSubjectLimitValid: toBooleanOrNull(status.elective_parallel_subject_limit_valid),
+      noElectiveStudentConflict: toBooleanOrNull(status.no_elective_student_conflict)
     },
     violations: {
       assignmentExact: toFiniteNumberOrNull(violations.assignment_exact),
@@ -44,7 +45,8 @@ const normalizeHardConstraintSummary = (hardConstraints) => {
       invalidSlotDay: toFiniteNumberOrNull(violations.invalid_slot_day),
       distributionPattern: toFiniteNumberOrNull(violations.distribution_pattern),
       mandatoryVsElectiveOverlap: toFiniteNumberOrNull(violations.mandatory_vs_elective_overlap),
-      electiveParallelSubjectLimit: toFiniteNumberOrNull(violations.elective_parallel_subject_limit)
+      electiveParallelSubjectLimit: toFiniteNumberOrNull(violations.elective_parallel_subject_limit),
+      electiveStudentConflict: toFiniteNumberOrNull(violations.elective_student_conflict)
     }
   };
 };
@@ -168,6 +170,8 @@ const buildSchedulerRequestPayload = ({
   })),
   student_enrollments: (studentEnrollments || []).map((item) => ({
     student_id: item.studentId,
+    student_name: item.studentName || null,
+    nis: item.nis || null,
     rombel_ids: item.rombelIds
   }))
 });

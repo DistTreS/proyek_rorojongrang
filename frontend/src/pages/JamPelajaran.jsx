@@ -66,8 +66,31 @@ const JamPelajaran = () => {
   };
 
   useEffect(() => {
-    load(1, filterPeriodId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const loadInitial = async () => {
+      setLoading(true);
+      try {
+        const [slotRes, periodRes] = await Promise.all([
+          api.get('/jam', {
+            params: buildPageParams({
+              page: 1,
+              pageSize: DEFAULT_PAGE_SIZE
+            })
+          }),
+          fetchAllPages(api, '/period')
+        ]);
+        const normalized = normalizePaginatedResponse(slotRes.data);
+        setSlots(normalized.items || []);
+        setPagination(normalized);
+        setPage(normalized.page);
+        setPeriods(periodRes || []);
+      } catch {
+        setError('Gagal memuat data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadInitial();
   }, []);
 
   const periodMap = useMemo(() => new Map(periods.map(p => [p.id, p])), [periods]);

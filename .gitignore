@@ -16,6 +16,7 @@ pnpm-debug.log*
 # Build
 frontend/dist/
 backend/coverage/
+backend/scripts/generated/
 backend/public/*
 !backend/public/uploads/
 backend/public/uploads/*
@@ -31,3 +32,6 @@ venv/
 
 # OS
 .DS_Store
+
+# Tooling
+.codex

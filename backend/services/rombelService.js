@@ -11,13 +11,14 @@ const {
 } = require('./schedulingSupport');
 const { getAccessibleRombelIds } = require('./teacherOperationalService');
 
-const formatRombel = (rombel) => ({
+const formatRombel = (rombel, studentCount = null) => ({
   id: rombel.id,
   name: rombel.name,
   gradeLevel: rombel.gradeLevel,
   type: rombel.type,
   periodId: rombel.periodId,
-  periodName: rombel.AcademicPeriod?.name || null
+  periodName: rombel.AcademicPeriod?.name || null,
+  studentCount: studentCount != null ? studentCount : (rombel.Students?.length ?? 0)
 });
 
 const VALID_GRADE_LEVELS = [10, 11, 12];
@@ -86,11 +87,14 @@ const listRombels = async (query = {}) => {
 
   const rombels = await Rombel.findAll({
     where,
-    include: [{ model: AcademicPeriod }],
+    include: [
+      { model: AcademicPeriod },
+      { model: Student, attributes: ['id'], through: { attributes: [] } }
+    ],
     order: [['periodId', 'DESC'], ['name', 'ASC']]
   });
 
-  return paginateItems(rombels.map(formatRombel), pagination);
+  return paginateItems(rombels.map(r => formatRombel(r, r.Students?.length ?? 0)), pagination);
 };
 
 const getRombelDetail = async (id, { user } = {}) => {

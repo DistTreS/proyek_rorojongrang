@@ -59,8 +59,28 @@ const Period = () => {
   };
 
   useEffect(() => {
-    load(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const loadInitial = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data } = await api.get('/period', {
+          params: buildPageParams({
+            page: 1,
+            pageSize: DEFAULT_PAGE_SIZE
+          })
+        });
+        const normalized = normalizePaginatedResponse(data);
+        setPeriods(normalized.items || []);
+        setPagination(normalized);
+        setPage(normalized.page);
+      } catch (err) {
+        setError(err.response?.data?.message || 'Gagal memuat periode');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadInitial();
   }, []);
 
   const updateForm = (field, value) => {

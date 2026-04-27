@@ -85,8 +85,40 @@ const Pengampu = () => {
   };
 
   useEffect(() => {
-    load(1, filterPeriodId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const loadInitial = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [assignmentRes, tendikRes, subjectRes, rombelRes, periodRes] = await Promise.all([
+          api.get('/pengampu', {
+            params: buildPageParams({
+              page: 1,
+              pageSize: DEFAULT_PAGE_SIZE
+            })
+          }),
+          fetchAllPages(api, '/tendik'),
+          fetchAllPages(api, '/mapel'),
+          fetchAllPages(api, '/rombel'),
+          fetchAllPages(api, '/period')
+        ]);
+
+        const normalized = normalizePaginatedResponse(assignmentRes.data);
+        setAssignments(normalized.items || []);
+        setPagination(normalized);
+        setPage(normalized.page);
+
+        setTeachers((tendikRes || []).filter(item => item.user?.roles?.includes('guru')));
+        setSubjects(subjectRes || []);
+        setRombels(rombelRes || []);
+        setPeriods(periodRes || []);
+      } catch (err) {
+        setError(err.response?.data?.message || 'Gagal memuat pengampu');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadInitial();
   }, []);
 
   const periodMap = useMemo(() => new Map(periods.map(item => [item.id, item])), [periods]);

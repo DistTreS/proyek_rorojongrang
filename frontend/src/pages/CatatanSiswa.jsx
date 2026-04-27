@@ -90,8 +90,31 @@ const CatatanSiswa = () => {
   };
 
   useEffect(() => {
-    load({ nextPage: 1 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const loadInitial = async () => {
+      setLoading(true);
+      try {
+        const [noteRes, studentRes] = await Promise.all([
+          api.get('/student-notes', {
+            params: buildPageParams({
+              page: 1,
+              pageSize: DEFAULT_PAGE_SIZE
+            })
+          }),
+          fetchAllPages(api, '/siswa')
+        ]);
+        const normalized = normalizePaginatedResponse(noteRes.data);
+        setNotes(normalized.items || []);
+        setPagination(normalized);
+        setPage(normalized.page);
+        setStudents(studentRes || []);
+      } catch (err) {
+        setError(err.response?.data?.message || 'Gagal memuat data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadInitial();
   }, []);
 
   const studentMap = useMemo(() => new Map(students.map(s => [s.id, s])), [students]);

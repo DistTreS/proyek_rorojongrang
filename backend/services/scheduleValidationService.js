@@ -405,6 +405,8 @@ const validateScheduleGenerationData = async (periodId, constraints = {}) => {
   const studentEnrollments = students
     .map((student) => ({
       studentId: student.id,
+      studentName: student.name || null,
+      nis: student.nis || null,
       rombelIds: [...new Set((student.Rombels || []).map((rombel) => rombel.id))]
     }))
     .filter((item) => item.rombelIds.length > 0);
